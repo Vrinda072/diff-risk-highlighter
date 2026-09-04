@@ -1,0 +1,1618 @@
+diff --git a/django/contrib/admin/__init__.py b/django/contrib/admin/__init__.py
+index 0d9189f6b17b..bc2fa3eb51e4 100644
+--- a/django/contrib/admin/__init__.py
++++ b/django/contrib/admin/__init__.py
+@@ -14,6 +14,7 @@
+ from django.contrib.admin.options import (
+     HORIZONTAL,
+     VERTICAL,
++    ActionLocation,
+     ModelAdmin,
+     ShowFacets,
+     StackedInline,
+@@ -24,6 +25,7 @@
+ 
+ __all__ = [
+     "action",
++    "ActionLocation",
+     "display",
+     "register",
+     "ModelAdmin",
+diff --git a/django/contrib/admin/checks.py b/django/contrib/admin/checks.py
+index b4aa6aaccd53..e6933045e57e 100644
+--- a/django/contrib/admin/checks.py
++++ b/django/contrib/admin/checks.py
+@@ -1248,10 +1248,10 @@ def _check_actions(self, obj):
+ 
+         # Actions with an allowed_permission attribute require the ModelAdmin
+         # to implement a has_<perm>_permission() method for each permission.
+-        for func, name, _ in actions:
+-            if not hasattr(func, "allowed_permissions"):
++        for action in actions:
++            if not hasattr(action.func, "allowed_permissions"):
+                 continue
+-            for permission in func.allowed_permissions:
++            for permission in action.func.allowed_permissions:
+                 method_name = "has_%s_permission" % permission
+                 if not hasattr(obj, method_name):
+                     errors.append(
+@@ -1260,14 +1260,14 @@ def _check_actions(self, obj):
+                             % (
+                                 obj.__class__.__name__,
+                                 method_name,
+-                                func.__name__,
++                                action.func.__name__,
+                             ),
+                             obj=obj.__class__,
+                             id="admin.E129",
+                         )
+                     )
+         # Names need to be unique.
+-        names = collections.Counter(name for _, name, _ in actions)
++        names = collections.Counter(action.name for action in actions)
+         for name, count in names.items():
+             if count > 1:
+                 errors.append(
+diff --git a/django/contrib/admin/decorators.py b/django/contrib/admin/decorators.py
+index d3ff56a59a0c..d6a4dff635ef 100644
+--- a/django/contrib/admin/decorators.py
++++ b/django/contrib/admin/decorators.py
+@@ -1,4 +1,14 @@
+-def action(function=None, *, permissions=None, description=None):
++from django.contrib.admin.options import ActionLocation
++
++
++def action(
++    function=None,
++    *,
++    permissions=None,
++    description=None,
++    description_plural=None,
++    location=ActionLocation.CHANGE_LIST,
++):
+     """
+     Conveniently add attributes to an action function::
+ 
+@@ -23,6 +33,13 @@ def decorator(func):
+             func.allowed_permissions = permissions
+         if description is not None:
+             func.short_description = description
++        if description_plural is not None:
++            func.plural_description = description_plural
++        elif description is not None:
++            func.plural_description = description
++        func.locations = (
++            [location] if isinstance(location, ActionLocation) else location
++        )
+         return func
+ 
+     if function is None:
+diff --git a/django/contrib/admin/options.py b/django/contrib/admin/options.py
+index 40ae27c22cc6..e5a856e1327c 100644
+--- a/django/contrib/admin/options.py
++++ b/django/contrib/admin/options.py
+@@ -3,6 +3,8 @@
+ import json
+ import re
+ import warnings
++from collections.abc import Callable
++from dataclasses import dataclass
+ from functools import partial, update_wrapper
+ from urllib.parse import parse_qsl
+ from urllib.parse import quote as urlquote
+@@ -62,6 +64,7 @@
+ from django.utils.deprecation import RemovedInDjango70Warning, django_file_prefixes
+ from django.utils.html import format_html
+ from django.utils.http import urlencode
++from django.utils.inspect import get_func_args
+ from django.utils.safestring import mark_safe
+ from django.utils.text import (
+     capfirst,
+@@ -88,6 +91,43 @@ class ShowFacets(enum.Enum):
+     ALWAYS = "ALWAYS"
+ 
+ 
++class ActionLocation(enum.Enum):
++    CHANGE_FORM = "CHANGE_FORM"
++    CHANGE_LIST = "CHANGE_LIST"
++
++
++@dataclass
++class Action:
++    func: Callable
++    name: str
++    description: str
++    plural_description: str
++    locations: list
++
++    # RemovedInDjango70Warning.
++    def _as_tuple(self):
++        return (self.func, self.name, self.description)
++
++    # RemovedInDjango70Warning.
++    def __iter__(self):
++        warnings.warn(
++            "Unpacking an action tuple is deprecated. Use Action attributes instead.",
++            RemovedInDjango70Warning,
++            skip_file_prefixes=django_file_prefixes(),
++        )
++        return iter(self._as_tuple())
++
++    # RemovedInDjango70Warning.
++    def __getitem__(self, index):
++        warnings.warn(
++            "Using indexes on an action tuple is deprecated. "
++            "Use Action attributes instead.",
++            RemovedInDjango70Warning,
++            skip_file_prefixes=django_file_prefixes(),
++        )
++        return self._as_tuple()[index]
++
++
+ HORIZONTAL, VERTICAL = 1, 2
+ 
+ 
+@@ -870,7 +910,13 @@ def get_changelist_instance(self, request):
+         list_display = self.get_list_display(request)
+         list_display_links = self.get_list_display_links(request, list_display)
+         # Add the action checkboxes if any actions are available.
+-        if self.get_actions(request):
++        # RemovedInDjango70Warning: When the deprecation ends, replace with:
++        # if self.get_actions(
++        #     request, action_location=ActionLocation.CHANGE_LIST
++        # ):
++        if self._get_actions_with_action_location(
++            request, action_location=ActionLocation.CHANGE_LIST
++        ):
+             list_display = ["action_checkbox", *list_display]
+         sortable_by = self.get_sortable_by(request)
+         ChangeList = self.get_changelist(request)
+@@ -1030,20 +1076,32 @@ def _get_action_description(func, name):
+         except AttributeError:
+             return capfirst(name.replace("_", " "))
+ 
+-    def _get_base_actions(self):
++    def _get_base_actions(self, action_location=ActionLocation.CHANGE_LIST):
+         """Return the list of actions, prior to any request-based filtering."""
+         actions = []
+-        base_actions = (self.get_action(action) for action in self.actions or [])
++        base_actions = (
++            self.get_action(action, action_location) for action in self.actions or []
++        )
+         # get_action might have returned None, so filter any of those out.
+         base_actions = [action for action in base_actions if action]
+-        base_action_names = {name for _, name, _ in base_actions}
++        base_action_names = {action.name for action in base_actions}
+ 
+         # Gather actions from the admin site first
+         for name, func in self.admin_site.actions:
+             if name in base_action_names:
+                 continue
++            locations = getattr(func, "locations", [ActionLocation.CHANGE_LIST])
++            if action_location not in locations:
++                continue
+             description = self._get_action_description(func, name)
+-            actions.append((func, name, description))
++            action = Action(
++                func=func,
++                name=name,
++                description=description,
++                plural_description=getattr(func, "plural_description", description),
++                locations=locations,
++            )
++            actions.append(action)
+         # Add actions from this ModelAdmin.
+         actions.extend(base_actions)
+         return actions
+@@ -1052,7 +1110,7 @@ def _filter_actions_by_permissions(self, request, actions):
+         """Filter out any actions that the user doesn't have access to."""
+         filtered_actions = []
+         for action in actions:
+-            callable = action[0]
++            callable = action.func
+             if not hasattr(callable, "allowed_permissions"):
+                 filtered_actions.append(action)
+                 continue
+@@ -1064,7 +1122,27 @@ def _filter_actions_by_permissions(self, request, actions):
+                 filtered_actions.append(action)
+         return filtered_actions
+ 
+-    def get_actions(self, request):
++    # RemovedInDjango70Warning: When the deprecation ends, remove.
++    def _get_actions_with_action_location(
++        self, request, action_location=ActionLocation.CHANGE_LIST
++    ):
++        if "action_location" in get_func_args(self.get_actions):
++            return self.get_actions(request, action_location=action_location)
++        else:
++            warnings.warn(
++                "Overriding get_actions() without the 'action_location' parameter is "
++                "deprecated. Update the signature to get_actions(self, request, "
++                "action_location=ActionLocation.CHANGE_LIST).",
++                RemovedInDjango70Warning,
++                skip_file_prefixes=django_file_prefixes(),
++            )
++            if action_location == ActionLocation.CHANGE_FORM:
++                # Disable adding actions on change form when get_actions is
++                # overridden with old signature.
++                return {}
++            return self.get_actions(request)
++
++    def get_actions(self, request, action_location=ActionLocation.CHANGE_LIST):
+         """
+         Return a dictionary mapping the names of all actions for this
+         ModelAdmin to a tuple of (callable, name, description) for each action.
+@@ -1073,10 +1151,45 @@ def get_actions(self, request):
+         # this page.
+         if self.actions is None or IS_POPUP_VAR in request.GET:
+             return {}
+-        actions = self._filter_actions_by_permissions(request, self._get_base_actions())
+-        return {name: (func, name, desc) for func, name, desc in actions}
+-
+-    def get_action_choices(self, request, default_choices=None):
++        base_actions = self._get_base_actions(action_location=action_location)
++        actions = self._filter_actions_by_permissions(request, base_actions)
++        return {action.name: action for action in actions}
++
++    # RemovedInDjango70Warning: When the deprecation ends, remove.
++    def _get_action_choices_with_action_location(
++        self,
++        request,
++        default_choices=None,
++        action_location=ActionLocation.CHANGE_LIST,
++    ):
++        if "action_location" in get_func_args(self.get_action_choices):
++            return self.get_action_choices(
++                request,
++                default_choices=default_choices,
++                action_location=action_location,
++            )
++        else:
++            warnings.warn(
++                "Overriding get_action_choices() without the 'action_location' "
++                "parameter is deprecated. Update the signature to "
++                "get_action_choices(self, request, default_choices=None, "
++                "action_location=ActionLocation.CHANGE_LIST).",
++                RemovedInDjango70Warning,
++                skip_file_prefixes=django_file_prefixes(),
++            )
++            return self.get_action_choices(request, default_choices=default_choices)
++
++    def _get_choice_description(self, action, action_location):
++        if action_location == ActionLocation.CHANGE_LIST:
++            return action.plural_description % model_format_dict(self.opts)
++        return action.description % model_format_dict(self.opts)
++
++    def get_action_choices(
++        self,
++        request,
++        default_choices=None,
++        action_location=ActionLocation.CHANGE_LIST,
++    ):
+         """
+         Return a list of choices for use in a form object. Each choice is a
+         tuple (name, description).
+@@ -1084,12 +1197,23 @@ def get_action_choices(self, request, default_choices=None):
+         if default_choices is None:
+             default_choices = [("", get_blank_choice_label())]
+         choices = [*default_choices]
+-        for func, name, description in self.get_actions(request).values():
+-            choice = (name, description % model_format_dict(self.opts))
++        # RemovedInDjango70Warning: When the deprecation ends, replace with:
++        # actions = self.get_actions(request, action_location=action_location)
++        actions = self._get_actions_with_action_location(
++            request, action_location=action_location
++        )
++        for action in actions.values():
++            if isinstance(action, tuple):
++                choice = (action[1], action[2] % model_format_dict(self.opts))
++            else:
++                choice = (
++                    action.name,
++                    self._get_choice_description(action, action_location),
++                )
+             choices.append(choice)
+         return choices
+ 
+-    def get_action(self, action):
++    def get_action(self, action, action_location=ActionLocation.CHANGE_LIST):
+         """
+         Return a given action from a parameter, which can either be a callable,
+         or the name of a method on the ModelAdmin. Return is a tuple of
+@@ -1112,9 +1236,19 @@ def get_action(self, action):
+                 func = self.admin_site.get_action(action)
+             except KeyError:
+                 return None
++        # Filter out actions based on the action type.
++        locations = getattr(func, "locations", [ActionLocation.CHANGE_LIST])
++        if action_location not in locations:
++            return None
+ 
+         description = self._get_action_description(func, action)
+-        return func, action, description
++        return Action(
++            func=func,
++            name=action,
++            description=description,
++            plural_description=getattr(func, "plural_description", description),
++            locations=locations,
++        )
+ 
+     def get_list_display(self, request):
+         """
+@@ -1667,11 +1801,12 @@ def response_post_save_change(self, request, obj):
+         """
+         return self._response_post_save(request, obj)
+ 
+-    def response_action(self, request, queryset):
++    def response_action(
++        self, request, queryset, action_location=ActionLocation.CHANGE_LIST
++    ):
+         """
+-        Handle an admin action. This is called if a request is POSTed to the
+-        changelist; it returns an HttpResponse if the action was handled, and
+-        None otherwise.
++        Handle an admin action. Returns an HttpResponse if the action was
++        handled, and None otherwise.
+         """
+ 
+         # There can be multiple action forms on the page (at the top
+@@ -1696,14 +1831,39 @@ def response_action(self, request, queryset):
+             # below. So no need to do anything here
+             pass
+ 
+-        action_form = self.action_form(data, auto_id=None)
+-        action_form.fields["action"].choices = self.get_action_choices(request)
++        prefix = (
++            action_location.value
++            if action_location != ActionLocation.CHANGE_LIST
++            else ""
++        )
++        action_form = self.action_form(data, auto_id=None, prefix=prefix)
++        # RemovedInDjango70Warning: When the deprecation ends, replace with:
++        # action_form.fields["action"].choices = self.get_action_choices(
++        #     request, action_location=action_location
++        # )
++        action_form.fields["action"].choices = (
++            self._get_action_choices_with_action_location(
++                request, action_location=action_location
++            )
++        )
+ 
+         # If the form's valid we can handle the action.
+         if action_form.is_valid():
+             action = action_form.cleaned_data["action"]
+             select_across = action_form.cleaned_data["select_across"]
+-            func = self.get_actions(request)[action][0]
++            if action_location == ActionLocation.CHANGE_FORM:
++                select_across = False
++            # RemovedInDjango70Warning: When the deprecation ends, replace:
++            # actions = self.get_actions(
++            #     request, action_location=action_location
++            # )
++            actions = self._get_actions_with_action_location(
++                request, action_location=action_location
++            )
++            if isinstance(actions[action], tuple):
++                func = actions[action][0]
++            else:
++                func = actions[action].func
+ 
+             # Get the list of selected PKs. If nothing's selected, we can't
+             # perform an action on it, so bail. Except we want to perform
+@@ -1913,11 +2073,45 @@ def _changeform_view(self, request, object_id, form_url, extra_context):
+                     request, self.opts, object_id
+                 )
+ 
++        action_form = None
++        # RemovedInDjango70Warning: When the deprecation ends, replace with:
++        # actions = self.get_actions(
++        #     request, action_location=ActionLocation.CHANGE_FORM
++        # )
++        actions = self._get_actions_with_action_location(
++            request, action_location=ActionLocation.CHANGE_FORM
++        )
++        if actions and not add:
++            action_location = ActionLocation.CHANGE_FORM
++            action_form = self.action_form(auto_id=None, prefix=action_location.value)
++            # RemovedInDjango70Warning: When the deprecation ends, replace:
++            # action_form.fields["action"].choices = self.get_action_choices(
++            #     request, action_location=action_location
++            # )
++            action_form.fields["action"].choices = (
++                self._get_action_choices_with_action_location(
++                    request, action_location=action_location
++                )
++            )
+         fieldsets = self.get_fieldsets(request, obj)
+         ModelForm = self.get_form(
+             request, obj, change=not add, fields=flatten_fieldsets(fieldsets)
+         )
+         if request.method == "POST":
++            if (
++                action_form
++                and action_form["action"].html_name in request.POST
++                and "_save" not in request.POST
++                and "_continue" not in request.POST
++                and "_addanother" not in request.POST
++            ):
++                queryset = self.model._default_manager.get_queryset()
++                if response := self.response_action(
++                    request, queryset, action_location=ActionLocation.CHANGE_FORM
++                ):
++                    return response
++                return HttpResponseRedirect(request.get_full_path())
++
+             form = ModelForm(request.POST, request.FILES, instance=obj)
+             formsets, inline_instances = self._create_formsets(
+                 request,
+@@ -1979,6 +2173,8 @@ def _changeform_view(self, request, object_id, form_url, extra_context):
+         )
+         for inline_formset in inline_formsets:
+             media += inline_formset.media
++        if action_form:
++            media += action_form.media
+ 
+         if add:
+             title = _("Add %s")
+@@ -1999,6 +2195,8 @@ def _changeform_view(self, request, object_id, form_url, extra_context):
+             "source_model": request.GET.get(SOURCE_MODEL_VAR),
+             "to_field": to_field,
+             "media": media,
++            "action_form": action_form,
++            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+             "inline_admin_formsets": inline_formsets,
+             "errors": helpers.AdminErrorList(form, formsets),
+             "preserved_filters": self.get_preserved_filters(request),
+@@ -2131,7 +2329,13 @@ def changelist_view(self, request, extra_context=None):
+         action_failed = False
+         selected = request.POST.getlist(helpers.ACTION_CHECKBOX_NAME)
+ 
+-        actions = self.get_actions(request)
++        # RemovedInDjango70Warning: When the deprecation ends, replace with:
++        # actions = self.get_actions(
++        #     request, action_location=ActionLocation.CHANGE_LIST
++        # )
++        actions = self._get_actions_with_action_location(
++            request, action_location=ActionLocation.CHANGE_LIST
++        )
+         # Actions with no confirmation
+         if (
+             actions
+@@ -2141,7 +2345,9 @@ def changelist_view(self, request, extra_context=None):
+         ):
+             if selected:
+                 response = self.response_action(
+-                    request, queryset=cl.get_queryset(request)
++                    request,
++                    queryset=cl.get_queryset(request),
++                    action_location=ActionLocation.CHANGE_LIST,
+                 )
+                 if response:
+                     return response
+@@ -2165,7 +2371,9 @@ def changelist_view(self, request, extra_context=None):
+         ):
+             if selected:
+                 response = self.response_action(
+-                    request, queryset=cl.get_queryset(request)
++                    request,
++                    queryset=cl.get_queryset(request),
++                    action_location=ActionLocation.CHANGE_LIST,
+                 )
+                 if response:
+                     return response
+@@ -2209,7 +2417,15 @@ def changelist_view(self, request, extra_context=None):
+         # Build the action form and populate it with available actions.
+         if actions:
+             action_form = self.action_form(auto_id=None)
+-            action_form.fields["action"].choices = self.get_action_choices(request)
++            # RemovedInDjango70Warning: When the deprecation ends, replace:
++            # action_form.fields["action"].choices = self.get_action_choices(
++            #     request, action_location=ActionLocation.CHANGE_LIST
++            # )
++            action_form.fields["action"].choices = (
++                self._get_action_choices_with_action_location(
++                    request, action_location=ActionLocation.CHANGE_LIST
++                )
++            )
+             media += action_form.media
+         else:
+             action_form = None
+diff --git a/django/contrib/admin/static/admin/css/base.css b/django/contrib/admin/static/admin/css/base.css
+index a89055c19eb5..8f72023ea171 100644
+--- a/django/contrib/admin/static/admin/css/base.css
++++ b/django/contrib/admin/static/admin/css/base.css
+@@ -1317,3 +1317,69 @@ a.deletelink:hover {
+     color: var(--body-fg);
+     background-color: var(--body-bg);
+ }
++
++/* ACTIONS */
++
++.actions {
++    padding: 10px;
++    background: var(--body-bg);
++    border-top: none;
++    border-bottom: none;
++    line-height: 1.5rem;
++    color: var(--body-quiet-color);
++    width: 100%;
++    box-sizing: border-box;
++}
++
++.actions span.all,
++.actions span.action-counter,
++.actions span.clear,
++.actions span.question {
++    font-size: 0.8125rem;
++    margin: 0 0.5em;
++}
++
++.actions:last-child {
++    border-bottom: none;
++}
++
++.actions select {
++    vertical-align: top;
++    height: 1.5rem;
++    color: var(--body-fg);
++    border: 1px solid var(--border-color);
++    border-radius: 4px;
++    font-size: 0.875rem;
++    padding: 0 0 0 4px;
++    margin: 0;
++    margin-left: 10px;
++}
++
++.actions select:focus {
++    border-color: var(--body-quiet-color);
++}
++
++.actions label {
++    display: inline-block;
++    vertical-align: middle;
++    font-size: 0.8125rem;
++}
++
++.actions .button {
++    font-size: 0.8125rem;
++    border: 1px solid var(--border-color);
++    border-radius: 4px;
++    background: var(--body-bg);
++    box-shadow: 0 -15px 20px -10px rgba(0, 0, 0, 0.15) inset;
++    cursor: pointer;
++    height: 1.5rem;
++    line-height: 1;
++    padding: 4px 8px;
++    margin: 0;
++    color: var(--body-fg);
++}
++
++.actions .button:focus,
++.actions .button:hover {
++    border-color: var(--body-quiet-color);
++}
+diff --git a/django/contrib/admin/static/admin/css/changelists.css b/django/contrib/admin/static/admin/css/changelists.css
+index 38cf7334a5f9..d1bdb9f398ac 100644
+--- a/django/contrib/admin/static/admin/css/changelists.css
++++ b/django/contrib/admin/static/admin/css/changelists.css
+@@ -316,66 +316,3 @@
+         background-color: SelectedItem;
+     }
+ }
+-
+-#changelist .actions {
+-    padding: 10px;
+-    background: var(--body-bg);
+-    border-top: none;
+-    border-bottom: none;
+-    line-height: 1.5rem;
+-    color: var(--body-quiet-color);
+-    width: 100%;
+-}
+-
+-#changelist .actions span.all,
+-#changelist .actions span.action-counter,
+-#changelist .actions span.clear,
+-#changelist .actions span.question {
+-    font-size: 0.8125rem;
+-    margin: 0 0.5em;
+-}
+-
+-#changelist .actions:last-child {
+-    border-bottom: none;
+-}
+-
+-#changelist .actions select {
+-    vertical-align: top;
+-    height: 1.5rem;
+-    color: var(--body-fg);
+-    border: 1px solid var(--border-color);
+-    border-radius: 4px;
+-    font-size: 0.875rem;
+-    padding: 0 0 0 4px;
+-    margin: 0;
+-    margin-left: 10px;
+-}
+-
+-#changelist .actions select:focus {
+-    border-color: var(--body-quiet-color);
+-}
+-
+-#changelist .actions label {
+-    display: inline-block;
+-    vertical-align: middle;
+-    font-size: 0.8125rem;
+-}
+-
+-#changelist .actions .button {
+-    font-size: 0.8125rem;
+-    border: 1px solid var(--border-color);
+-    border-radius: 4px;
+-    background: var(--body-bg);
+-    box-shadow: 0 -15px 20px -10px rgba(0, 0, 0, 0.15) inset;
+-    cursor: pointer;
+-    height: 1.5rem;
+-    line-height: 1;
+-    padding: 4px 8px;
+-    margin: 0;
+-    color: var(--body-fg);
+-}
+-
+-#changelist .actions .button:focus,
+-#changelist .actions .button:hover {
+-    border-color: var(--body-quiet-color);
+-}
+diff --git a/django/contrib/admin/static/admin/css/responsive.css b/django/contrib/admin/static/admin/css/responsive.css
+index 4962e2294759..1a8a0ce60053 100644
+--- a/django/contrib/admin/static/admin/css/responsive.css
++++ b/django/contrib/admin/static/admin/css/responsive.css
+@@ -127,29 +127,29 @@ button {
+         margin: 5px 0 0 25px;
+     }
+ 
+-    #changelist .actions {
++    .actions {
+         display: flex;
+         flex-wrap: wrap;
+         padding: 15px 0;
+     }
+ 
+-    #changelist .actions label {
++    .actions label {
+         display: flex;
+     }
+ 
+-    #changelist .actions select {
++    .actions select {
+         background: var(--body-bg);
+     }
+ 
+-    #changelist .actions .button {
++    .actions .button {
+         min-width: 48px;
+         margin: 0 10px;
+     }
+ 
+-    #changelist .actions span.all,
+-    #changelist .actions span.clear,
+-    #changelist .actions span.question,
+-    #changelist .actions span.action-counter {
++    .actions span.all,
++    .actions span.clear,
++    .actions span.question,
++    .actions span.action-counter {
+         font-size: 0.6875rem;
+         margin: 0 10px 0 0;
+     }
+@@ -437,16 +437,16 @@ button {
+         margin-left: 0;
+     }
+ 
+-    #changelist .actions label {
++    .actions label {
+         flex: 1 1;
+     }
+ 
+-    #changelist .actions select {
++    .actions select {
+         flex: 1 0;
+         width: 100%;
+     }
+ 
+-    #changelist .actions span {
++    .actions span {
+         flex: 1 0 100%;
+     }
+ 
+diff --git a/django/contrib/admin/static/admin/css/responsive_rtl.css b/django/contrib/admin/static/admin/css/responsive_rtl.css
+index 5f6c6305a62d..b80e3b40d772 100644
+--- a/django/contrib/admin/static/admin/css/responsive_rtl.css
++++ b/django/contrib/admin/static/admin/css/responsive_rtl.css
+@@ -9,12 +9,12 @@
+         text-align: right;
+     }
+ 
+-    [dir="rtl"] #changelist .actions label {
++    [dir="rtl"] .actions label {
+         padding-left: 10px;
+         padding-right: 0;
+     }
+ 
+-    [dir="rtl"] #changelist .actions select {
++    [dir="rtl"] .actions select {
+         margin-left: 0;
+         margin-right: 15px;
+     }
+diff --git a/django/contrib/admin/templates/admin/change_form.html b/django/contrib/admin/templates/admin/change_form.html
+index 9b09fb995254..39c883a7275e 100644
+--- a/django/contrib/admin/templates/admin/change_form.html
++++ b/django/contrib/admin/templates/admin/change_form.html
+@@ -1,5 +1,5 @@
+ {% extends "admin/base_site.html" %}
+-{% load i18n admin_urls static admin_modify admin_filters %}
++{% load i18n l10n admin_urls static admin_modify admin_filters %}
+ 
+ {% block title %}{% if errors %}{% translate "Error:" %} {% endif %}{{ block.super }}{% endblock %}
+ {% block extrahead %}{{ block.super }}
+@@ -37,6 +37,10 @@
+ {% block content %}<div id="content-main">
+ <form {% if has_file_field %}enctype="multipart/form-data" {% endif %}{% if form_url %}action="{{ form_url }}" {% endif %}method="post" id="{{ opts.model_name }}_form" novalidate>{% csrf_token %}{% block form_top %}{% endblock %}
+ <div>
++{% if action_form and not is_popup %}
++  {% change_form_admin_actions %}
++  <input type="hidden" name="{{ action_checkbox_name }}" value="{{ object_id|unlocalize }}">
++{% endif %}
+ {% if is_popup %}<input type="hidden" name="{{ is_popup_var }}" value="1">{% endif %}
+ {% if to_field %}<input type="hidden" name="{{ to_field_var }}" value="{{ to_field }}">{% endif %}
+ {% if source_model %}<input type="hidden" name="{{ source_model_var }}" value="{{ source_model }}">{% endif %}
+diff --git a/django/contrib/admin/templates/admin/change_form_actions.html b/django/contrib/admin/templates/admin/change_form_actions.html
+new file mode 100644
+index 000000000000..208fbc7770f6
+--- /dev/null
++++ b/django/contrib/admin/templates/admin/change_form_actions.html
+@@ -0,0 +1 @@
++{% extends "admin/actions.html" %}
+diff --git a/django/contrib/admin/templatetags/admin_modify.py b/django/contrib/admin/templatetags/admin_modify.py
+index c3d2ad01d903..8787c9effd64 100644
+--- a/django/contrib/admin/templatetags/admin_modify.py
++++ b/django/contrib/admin/templatetags/admin_modify.py
+@@ -150,3 +150,14 @@ def cell_count(inline_admin_form):
+         # Delete checkbox
+         count += 1
+     return count
++
++
++@register.tag(name="change_form_admin_actions")
++def admin_actions_tag(parser, token):
++    return InclusionAdminNode(
++        "change_form_admin_actions",
++        parser,
++        token,
++        func=lambda context: context,
++        template_name="change_form_actions.html",
++    )
+diff --git a/docs/internals/deprecation.txt b/docs/internals/deprecation.txt
+index d570972338c2..c27648c716b6 100644
+--- a/docs/internals/deprecation.txt
++++ b/docs/internals/deprecation.txt
+@@ -94,6 +94,16 @@ details on these changes.
+ * :class:`.ModelAdmin` will raise :exc:`ValueError` if its
+   :meth:`.get_list_select_related` method returns ``True``.
+ 
++* Support for overriding ``ModelAdmin.get_actions()`` without the new
++  ``action_location`` parameter will be removed.
++
++* Support for unpacking or indexing the dictionary values of the
++  ``ModelAdmin.get_actions()`` return value will be removed. Use
++  :class:`~django.contrib.admin.Action` attributes instead.
++
++* Support for overriding ``ModelAdmin.get_action_choices()`` without the new
++  ``action_location`` parameter will be removed.
++
+ .. _deprecation-removed-in-6.1:
+ 
+ 6.1
+diff --git a/docs/ref/contrib/admin/actions.txt b/docs/ref/contrib/admin/actions.txt
+index 331d52cd031c..134e5d8ebe37 100644
+--- a/docs/ref/contrib/admin/actions.txt
++++ b/docs/ref/contrib/admin/actions.txt
+@@ -68,6 +68,8 @@ admin one article at a time, but if we wanted to bulk-publish a group of
+ articles, it'd be tedious. So, let's write an action that lets us change an
+ article's status to "published."
+ 
++.. _action-function:
++
+ Writing action functions
+ ------------------------
+ 
+@@ -362,13 +364,14 @@ including any :ref:`site-wide actions <adminsite-actions>`.
+ Conditionally enabling or disabling actions
+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 
+-.. method:: ModelAdmin.get_actions(request)
++.. method:: ModelAdmin.get_actions(request, action_location=ActionLocation.CHANGE_LIST)
+ 
+     Finally, you can conditionally enable or disable actions on a per-request
+     (and hence per-user basis) by overriding :meth:`ModelAdmin.get_actions`.
+ 
+-    This returns a dictionary of actions allowed. The keys are action names,
+-    and the values are ``(function, name, short_description)`` tuples.
++    This returns a dictionary of actions allowed for the specific
++    ``action_location``. The keys are action names, and the values are
++    :class:`Action` objects.
+ 
+     For example, if you only want users whose names begin with 'J' to be able
+     to delete objects in bulk::
+@@ -376,13 +379,20 @@ Conditionally enabling or disabling actions
+         class MyModelAdmin(admin.ModelAdmin):
+             ...
+ 
+-            def get_actions(self, request):
+-                actions = super().get_actions(request)
++            def get_actions(self, request, action_location=ActionLocation.CHANGE_LIST):
++                actions = super().get_actions(request, action_location=action_location)
+                 if request.user.username[0].upper() != "J":
+                     if "delete_selected" in actions:
+                         del actions["delete_selected"]
+                 return actions
+ 
++    .. versionchanged:: 6.1
++
++        The keyword argument ``action_location`` was added. The return type was
++        changed to a dictionary where the keys are action names and the values
++        are :class:`Action` objects, previously the values were
++        ``(function, name, description)`` tuples.
++
+ .. _admin-action-permissions:
+ 
+ Setting permissions for actions
+@@ -431,10 +441,49 @@ For example::
+             codename = get_permission_codename("publish", opts)
+             return request.user.has_perm("%s.%s" % (opts.app_label, codename))
+ 
++.. _admin-action-availability:
++
++Controlling where actions are available
++~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++
++.. versionadded:: 6.1
++
++By default, admin actions are available on the change list page only. You can
++control where an action appears using the ``location`` argument of the
++``@admin.action`` decorator.
++
++For example, to make an action available only on the change form, set
++``location`` to :attr:`ActionLocation.CHANGE_FORM`::
++
++    from django.contrib import admin
++    from django.contrib.admin import ActionLocation
++
++
++    @admin.action(location=ActionLocation.CHANGE_FORM)
++    def make_published(modeladmin, request, queryset): ...
++
++To make an action available on both the change list and the change form::
++
++    @admin.action(
++        location=[ActionLocation.CHANGE_FORM, ActionLocation.CHANGE_LIST],
++        description="Publish",
++        description_plural="Mark selected stories as published",
++    )
++    def make_published(modeladmin, request, queryset): ...
++
++Notice that ``description`` and ``description_plural`` were provided. These are
++optional but the admin action will be labeled by ``description`` in the admin
++change form and ``description_plural`` in the admin change list.
++
++You can customize how actions are rendered by overriding admin templates.
++The change list page uses ``admin/actions.html`` and the change form page uses
++``admin/change_form_actions.html``. Note that the change form template inherits
++from the change list actions template.
++
+ The ``action`` decorator
+ ========================
+ 
+-.. function:: action(*, permissions=None, description=None)
++.. function:: action(*, permissions=None, description=None, description_plural=None, location=ActionLocation.CHANGE_LIST)
+ 
+     This decorator can be used for setting specific attributes on custom action
+     functions that can be used with
+@@ -478,6 +527,17 @@ The ``action`` decorator
+         capitalizing the first letter of the first word. This sets the
+         ``short_description`` attribute on the function.
+ 
++    :param description_plural: A human-readable description of the action used
++        in contexts where plural wording is required, such as on the admin
++        change list. If ``description_plural`` is not provided, falls back to
++        ``description``. This sets the ``plural_description`` attribute on the
++        function.
++
++    :param location: Specifies where the action is available. Accepts either a
++        single :class:`ActionLocation` value or an iterable of values. If
++        omitted, the action is only available on the admin change list. See
++        :ref:`admin-action-availability` for details.
++
+     .. admonition:: Action description ``%``-formatting support
+ 
+         Action descriptions support ``%``-formatting and may include
+@@ -485,3 +545,59 @@ The ``action`` decorator
+         These are replaced with the model’s
+         :attr:`~django.db.models.Options.verbose_name` and
+         :attr:`~django.db.models.Options.verbose_name_plural`.
++
++    .. versionchanged:: 6.1
++
++        The keyword arguments ``description_plural`` and ``location`` were
++        added.
++
++``ActionLocation``
++==================
++
++.. versionadded:: 6.1
++
++.. class:: ActionLocation
++
++  Enum of allowed values for the ``location`` parameter of the
++  :func:`~django.contrib.admin.action` decorator.
++
++  .. attribute:: CHANGE_FORM
++
++      The action is available on the admin change form. When an action is run,
++      any unsaved changes on the admin change form will be lost.
++
++  .. attribute:: CHANGE_LIST
++
++      The action is available on the admin change list.
++
++``Action``
++==========
++
++.. versionadded:: 6.1
++
++.. class:: Action
++
++    Represents an action. Actions should be defined using the :func:`action`
++    decorator.
++
++    .. attribute:: func
++
++        The action function. See :ref:`action-function` for details.
++
++    .. attribute:: name
++
++        The action function name.
++
++    .. attribute:: description
++
++        A human-readable description of the action to be rendered in the admin.
++
++    .. attribute:: plural_description
++
++        A human-readable description of the action used in contexts where
++        plural wording is required.
++
++    .. attribute:: locations
++
++        A list of :class:`ActionLocation` values the admin action can be
++        rendered.
+diff --git a/docs/ref/contrib/admin/index.txt b/docs/ref/contrib/admin/index.txt
+index 8ef697cfdeb6..548bd5e40566 100644
+--- a/docs/ref/contrib/admin/index.txt
++++ b/docs/ref/contrib/admin/index.txt
+@@ -204,9 +204,9 @@ subclass::
+ .. attribute:: ModelAdmin.actions_on_top
+ .. attribute:: ModelAdmin.actions_on_bottom
+ 
+-    Controls where on the page the actions bar appears. By default, the admin
+-    changelist displays actions at the top of the page (``actions_on_top =
+-    True; actions_on_bottom = False``).
++    Controls where on the admin changelist page the actions bar appears. By
++    default, the admin changelist displays actions at the top of the page
++    (``actions_on_top = True; actions_on_bottom = False``).
+ 
+ .. attribute:: ModelAdmin.actions_selection_counter
+ 
+@@ -2828,6 +2828,7 @@ app or per model. The following can:
+ * ``actions.html``
+ * ``app_index.html``
+ * ``change_form.html``
++* ``change_form_actions.html``
+ * ``change_form_object_tools.html``
+ * ``change_list.html``
+ * ``change_list_object_tools.html``
+diff --git a/docs/releases/6.1.txt b/docs/releases/6.1.txt
+index 146635841fb2..1094108165b5 100644
+--- a/docs/releases/6.1.txt
++++ b/docs/releases/6.1.txt
+@@ -125,6 +125,18 @@ Minor features
+ * :attr:`~django.contrib.admin.ModelAdmin.list_display` now uses boolean icons
+   for boolean fields on related models.
+ 
++* The new ``location`` keyword argument of the
++  :func:`~django.contrib.admin.action` decorator specifies which admin views
++  the action is available on. The action is available on the admin change list
++  page by default. It can also be available on the admin change form. See
++  :ref:`admin-action-availability` for details.
++
++* The new ``description_plural`` keyword argument of the
++  :func:`~django.contrib.admin.action` decorator specifies a human-readable
++  description for actions on the admin change list page. Defaults to the
++  ``description`` value. This is useful when the action is available on both
++  the admin change list and admin change form.
++
+ :mod:`django.contrib.admindocs`
+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 
+@@ -653,6 +665,16 @@ Miscellaneous
+   ``"sha1"`` to ``"sha256"`` in Django 7.0. Pass an explicit ``algorithm``
+   to silence the deprecation warning.
+ 
++* Overriding ``ModelAdmin.get_actions()`` without the new ``action_location``
++  parameter is deprecated.
++
++* Unpacking or indexing the dictionary values of the
++  ``ModelAdmin.get_actions()`` return value is deprecated. Use
++  :class:`~django.contrib.admin.Action` attributes instead.
++
++* Overriding ``ModelAdmin.get_action_choices()`` without the new
++  ``action_location`` parameter is deprecated.
++
+ Features removed in 6.1
+ =======================
+ 
+diff --git a/tests/admin_views/admin.py b/tests/admin_views/admin.py
+index aec0dd6af12a..3be1fc61b954 100644
+--- a/tests/admin_views/admin.py
++++ b/tests/admin_views/admin.py
+@@ -5,7 +5,9 @@
+ from django import forms
+ from django.contrib import admin
+ from django.contrib.admin import BooleanFieldListFilter
++from django.contrib.admin.options import ActionLocation
+ from django.contrib.admin.views.main import ChangeList
++from django.contrib.auth import get_permission_codename
+ from django.contrib.auth.admin import GroupAdmin, UserAdmin
+ from django.contrib.auth.models import Group, User
+ from django.core.exceptions import ValidationError
+@@ -84,6 +86,7 @@
+     Language,
+     Link,
+     MainPrepopulated,
++    ModelAction,
+     ModelWithStringPrimaryKey,
+     NotReferenced,
+     OldSubscriber,
+@@ -424,7 +427,10 @@ def mail_admin(self, request, selected):
+         ).send()
+ 
+ 
+-@admin.action(description="External mail (Another awesome action)")
++@admin.action(
++    description="External mail (Another awesome action)",
++    location=(ActionLocation.CHANGE_LIST, ActionLocation.CHANGE_FORM),
++)
+ def external_mail(modeladmin, request, selected):
+     EmailMessage(
+         "Greetings from a function action",
+@@ -441,9 +447,18 @@ def redirect_to(modeladmin, request, selected):
+     return HttpResponseRedirect("/some-where-else/")
+ 
+ 
+-@admin.action(description="Download subscription")
++@admin.action(
++    description="Download subscription",
++    description_plural="Download selected subscriptions",
++    location=(ActionLocation.CHANGE_LIST, ActionLocation.CHANGE_FORM),
++)
+ def download(modeladmin, request, selected):
+-    buf = StringIO("This is the content of the file")
++    if selected.count() > 1:
++        buf = StringIO("This is the content of the file")
++    else:
++        selected = selected.get()
++        buf = StringIO(f"This is the content of the file written by {selected.name}")
++
+     return StreamingHttpResponse(FileWrapper(buf))
+ 
+ 
+@@ -452,8 +467,39 @@ def no_perm(modeladmin, request, selected):
+     return HttpResponse(content="No permission to perform this action", status=403)
+ 
+ 
++@admin.action(
++    permissions=["custom"],
++    location=[ActionLocation.CHANGE_LIST, ActionLocation.CHANGE_FORM],
++)
++def custom_action(modeladmin, request, selected):
++    return HttpResponse(content="OK", status=200)
++
++
++@admin.action(description="Change view", location=ActionLocation.CHANGE_FORM)
++def change_view_only_action(modeladmin, request, selected):
++    return HttpResponse(content="OK", status=200)
++
++
++def no_decorator_action(modeladmin, request, selected):
++    return HttpResponse(content="OK", status=200)
++
++
+ class ExternalSubscriberAdmin(admin.ModelAdmin):
+-    actions = [redirect_to, external_mail, download, no_perm]
++    actions = [
++        redirect_to,
++        external_mail,
++        download,
++        no_perm,
++        custom_action,
++        change_view_only_action,
++        no_decorator_action,
++    ]
++
++    def has_custom_permission(self, request):
++        """Does the user have the custom permission?"""
++        opts = self.opts
++        codename = get_permission_codename("custom", opts)
++        return request.user.has_perm("%s.%s" % (opts.app_label, codename))
+ 
+ 
+ class PodcastAdmin(admin.ModelAdmin):
+@@ -1238,6 +1284,23 @@ class CourseAdmin(admin.ModelAdmin):
+     )
+ 
+ 
++# RemovedInDjango70Warning: When the deprecation ends, remove.
++class OverriddenActionAdmin(admin.ModelAdmin):
++    def get_actions(self, request):
++        actions = super().get_actions(request)
++        func, name, _ = actions["delete_selected"]
++        description = actions["delete_selected"][2]
++        actions["delete_selected"] = (func, name, description + " (extra)")
++        return actions
++
++    def get_action_choices(self, request, default_choices=models.BLANK_CHOICE_DASH):
++        return super().get_action_choices(request, default_choices)
++
++    @admin.action(location=[ActionLocation.CHANGE_LIST, ActionLocation.CHANGE_FORM])
++    def test_action(self, request, selected):
++        pass
++
++
+ site = admin.AdminSite(name="admin")
+ site.site_url = "/my-site-url/"
+ site.register(Article, ArticleAdmin)
+@@ -1313,6 +1376,8 @@ class CourseAdmin(admin.ModelAdmin):
+ site.register(RelatedPrepopulated, search_fields=["name"])
+ site.register(RelatedWithUUIDPKModel)
+ site.register(ReadOnlyRelatedField, ReadOnlyRelatedFieldAdmin)
++# RemovedInDjango70Warning: When the deprecation ends, remove.
++site.register(ModelAction, OverriddenActionAdmin)
+ 
+ # We intentionally register Promo and ChapterXtra1 but not Chapter nor
+ # ChapterXtra2. That way we cover all four cases:
+diff --git a/tests/admin_views/models.py b/tests/admin_views/models.py
+index 50abbfdfe2e1..06868e59db8c 100644
+--- a/tests/admin_views/models.py
++++ b/tests/admin_views/models.py
+@@ -329,7 +329,7 @@ def __str__(self):
+ 
+ 
+ class ExternalSubscriber(Subscriber):
+-    pass
++    action = models.CharField(default="subscribe", max_length=80, blank=True)
+ 
+ 
+ class OldSubscriber(Subscriber):
+@@ -1202,3 +1202,8 @@ class CamelCaseRelatedModel(models.Model):
+     fk2 = models.ForeignKey(
+         CamelCaseModel, on_delete=models.CASCADE, related_name="fk2"
+     )
++
++
++# RemovedInDjango70Warning: When the deprecation ends, remove.
++class ModelAction(models.Model):
++    pass
+diff --git a/tests/admin_views/test_actions.py b/tests/admin_views/test_actions.py
+index de5f5462a344..b480e624faa4 100644
+--- a/tests/admin_views/test_actions.py
++++ b/tests/admin_views/test_actions.py
+@@ -1,8 +1,10 @@
+ import json
++import warnings
+ 
+ from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
+ from django.contrib.admin.views.main import IS_POPUP_VAR
+ from django.contrib.auth.models import Permission, User
++from django.contrib.contenttypes.models import ContentType
+ from django.core import mail
+ from django.db import connection
+ from django.template.loader import render_to_string
+@@ -10,6 +12,7 @@
+ from django.test import TestCase, override_settings
+ from django.test.utils import CaptureQueriesContext
+ from django.urls import reverse
++from django.utils.deprecation import RemovedInDjango70Warning
+ 
+ from .admin import SubscriberAdmin
+ from .forms import MediaActionForm
+@@ -18,6 +21,7 @@
+     Answer,
+     Book,
+     ExternalSubscriber,
++    ModelAction,
+     Question,
+     Subscriber,
+     UnchangeableObject,
+@@ -283,7 +287,9 @@ def test_custom_function_action_streaming_response(self):
+             reverse("admin:admin_views_externalsubscriber_changelist"), action_data
+         )
+         content = b"".join(list(response))
+-        self.assertEqual(content, b"This is the content of the file")
++        self.assertEqual(
++            content, b"This is the content of the file written by John Doe"
++        )
+         self.assertEqual(response.status_code, 200)
+ 
+     def test_custom_function_action_no_perm_response(self):
+@@ -308,13 +314,13 @@ def test_actions_ordering(self):
+             response,
+             """<label>Action: <select name="action" required>
+ <option value="" selected>- Select an option -</option>
+-<option value="delete_selected">Delete selected external
+-subscribers</option>
++<option value="delete_selected">Delete selected external subscribers</option>
+ <option value="redirect_to">Redirect to (Awesome action)</option>
+-<option value="external_mail">External mail (Another awesome
+-action)</option>
+-<option value="download">Download subscription</option>
++<option value="external_mail">External mail (Another awesome action)</option>
++<option value="download">Download selected subscriptions</option>
+ <option value="no_perm">No permission to run</option>
++<option value="custom_action">Custom action</option>
++<option value="no_decorator_action">No decorator action</option>
+ </select>""",
+             html=True,
+         )
+@@ -558,3 +564,302 @@ def test_model_admin_no_delete_permission_externalsubscriber(self):
+             reverse("admin:admin_views_subscriber_changelist"), delete_confirmation_data
+         )
+         self.assertEqual(response.status_code, 403)
++
++
++@override_settings(ROOT_URLCONF="admin_views.urls")
++class AdminDetailActionsTest(TestCase):
++    @classmethod
++    def setUpTestData(cls):
++        cls.superuser = User.objects.create_superuser(
++            username="super", password="secret", email="super@example.com"
++        )
++        cls.user = User.objects.create_user(
++            username="user",
++            password="secret",
++            email="user@example.com",
++            is_staff=True,
++        )
++        cls.s1 = ExternalSubscriber.objects.create(
++            name="John Doe", email="john@example.org"
++        )
++        content_type = ContentType.objects.get_for_model(ExternalSubscriber)
++        for permission_type in ("view", "add", "change", "delete"):
++            permission = Permission.objects.get(
++                codename=f"{permission_type}_externalsubscriber",
++                content_type=content_type,
++            )
++            cls.user.user_permissions.add(permission)
++
++    def setUp(self):
++        self.client.force_login(self.user)
++
++    def test_delete_action_not_available_by_default(self):
++        response = self.client.get(
++            reverse("admin:admin_views_externalsubscriber_change", args=[self.s1.pk])
++        )
++        self.assertNotContains(response, '<option value="delete_selected">', html=True)
++
++    def test_singular_description_used_for_action_on_changeform(self):
++        response = self.client.get(
++            reverse("admin:admin_views_externalsubscriber_change", args=[self.s1.pk])
++        )
++        self.assertContains(
++            response,
++            '<option value="download">Download subscription</option>',
++            html=True,
++        )
++        self.assertNotContains(response, "Download selected subscriptions")
++        response = self.client.get(
++            reverse("admin:admin_views_externalsubscriber_changelist")
++        )
++        self.assertNotContains(response, "Download subscription")
++        self.assertContains(
++            response,
++            '<option value="download">Download selected subscriptions</option>',
++            html=True,
++        )
++
++    def test_actions_filtered_by_permissions(self):
++        response = self.client.get(
++            reverse("admin:admin_views_externalsubscriber_change", args=[self.s1.pk])
++        )
++        self.assertNotContains(
++            response, '<option value="custom_action">Custom action</option>', html=True
++        )
++        self.client.force_login(self.superuser)
++        response = self.client.get(
++            reverse("admin:admin_views_externalsubscriber_change", args=[self.s1.pk])
++        )
++        self.assertContains(
++            response, '<option value="custom_action">Custom action</option>', html=True
++        )
++
++    def test_run_action_permissions(self):
++        change_url = reverse(
++            "admin:admin_views_externalsubscriber_change", args=[self.s1.pk]
++        )
++        # User doesn't have the permission to run the custom action.
++        response = self.client.get(change_url)
++        self.assertNotContains(
++            response, '<option value="custom_action">Custom action</option>', html=True
++        )
++        post_data = {
++            "CHANGE_FORM-action": "custom_action",
++            ACTION_CHECKBOX_NAME: [self.s1.pk],
++            "index": 0,
++        }
++        response = self.client.post(change_url, post_data)
++        self.assertNotEqual(response.content, b"OK")
++
++        # Add permission for user to run the custom action.
++        content_type = ContentType.objects.get_for_model(ExternalSubscriber)
++        permission = Permission.objects.create(
++            name="custom",
++            codename="custom_externalsubscriber",
++            content_type=content_type,
++        )
++        self.user.user_permissions.add(permission)
++        response = self.client.get(change_url)
++        self.assertContains(
++            response, '<option value="custom_action">Custom action</option>', html=True
++        )
++        response = self.client.post(change_url, post_data)
++        self.assertEqual(response.status_code, 200)
++        self.assertEqual(response.content, b"OK")
++
++    def test_select_across_ignored(self):
++        ExternalSubscriber.objects.create(name="Bob Bobson", email="bob@example.org")
++        change_url = reverse(
++            "admin:admin_views_externalsubscriber_change", args=[self.s1.pk]
++        )
++        post_data = {
++            "CHANGE_FORM-action": "download",
++            ACTION_CHECKBOX_NAME: [self.s1.pk],
++            "index": 0,
++            "CHANGE_FORM-select-across": True,
++        }
++        response = self.client.post(change_url, post_data)
++        content = b"".join(list(response))
++        self.assertEqual(
++            content, b"This is the content of the file written by John Doe"
++        )
++        self.assertEqual(response.status_code, 200)
++
++    def test_detail_action_ordering_and_template(self):
++        response = self.client.get(
++            reverse("admin:admin_views_externalsubscriber_change", args=[self.s1.pk])
++        )
++        self.assertContains(
++            response,
++            """<label>Action: <select name="CHANGE_FORM-action" required>
++            <option value="" selected>- Select an option -</option>
++            <option value="external_mail">External mail (Another awesome action)
++            </option>
++            <option value="download">Download subscription</option>
++            <option value="change_view_only_action">Change view</option>
++            </select>""",
++            html=True,
++        )
++        self.assertTemplateUsed(response, "admin/change_form_actions.html")
++
++    def test_detail_actions_are_not_present_in_add_view(self):
++        response = self.client.get(reverse("admin:admin_views_externalsubscriber_add"))
++        self.assertNotContains(
++            response,
++            "<div class='actions'>",
++            html=True,
++        )
++
++    def test_dropdown_not_displayed_when_change_form_actions(self):
++        self.client.force_login(self.superuser)
++        instance = Actor.objects.create(name="David Tennant", age=45)
++        response = self.client.get(
++            reverse("admin:admin_views_actor_change", args=(instance.pk,))
++        )
++        self.assertNotContains(
++            response,
++            "<div class='actions'>",
++            html=True,
++        )
++
++    def test_update_object_without_action_selected(self):
++        buttons = ["_save", "_continue", "_addanother"]
++        for button in buttons:
++            with self.subTest(button=button):
++                self.client.post(
++                    reverse(
++                        "admin:admin_views_externalsubscriber_change", args=[self.s1.pk]
++                    ),
++                    {
++                        "name": button,
++                        "email": "foo@bar.com",
++                        "action": "test",
++                        button: "Save",
++                        "CHANGE_FORM-action": "",
++                        ACTION_CHECKBOX_NAME: [self.s1.pk],
++                    },
++                )
++                external_subscriber = ExternalSubscriber.objects.get()
++                self.assertEqual(external_subscriber.name, button)
++                self.assertEqual(external_subscriber.email, "foo@bar.com")
++                self.assertEqual(external_subscriber.action, "test")
++
++    def test_object_is_not_updated_when_action_selected(self):
++        self.client.post(
++            reverse("admin:admin_views_externalsubscriber_change", args=[self.s1.pk]),
++            {
++                "name": "Foo Bar",
++                "email": "foo@bar.com",
++                "action": "test",
++                "CHANGE_FORM-action": "external_mail",
++                ACTION_CHECKBOX_NAME: [self.s1.pk],
++                "index": 0,
++            },
++        )
++        self.assertEqual(len(mail.outbox), 1)
++        self.assertEqual(mail.outbox[0].subject, "Greetings from a function action")
++        external_subscriber = ExternalSubscriber.objects.get()
++        self.assertEqual(external_subscriber.name, "John Doe")
++        self.assertEqual(external_subscriber.email, "john@example.org")
++        self.assertEqual(external_subscriber.action, "subscribe")
++
++    def test_redirect_after_an_action(self):
++        response = self.client.post(
++            reverse("admin:admin_views_externalsubscriber_change", args=[self.s1.pk]),
++            {
++                "CHANGE_FORM-action": "external_mail",
++                ACTION_CHECKBOX_NAME: [self.s1.pk],
++                "index": 0,
++            },
++        )
++        self.assertEqual(response.status_code, 302)
++        self.assertEqual(
++            response.url,
++            reverse("admin:admin_views_externalsubscriber_change", args=[self.s1.pk]),
++        )
++        self.assertEqual(len(mail.outbox), 1)
++
++    def test_popup_change_form_has_no_actions(self):
++        change_url = reverse(
++            "admin:admin_views_externalsubscriber_change", args=[self.s1.pk]
++        )
++        response = self.client.get(change_url)
++        self.assertIsNotNone(response.context["action_form"])
++        checkbox = f'<input type="hidden" name="_selected_action" value="{self.s1.pk}">'
++        self.assertContains(response, checkbox, html=True)
++        response = self.client.get(change_url + "?%s" % IS_POPUP_VAR)
++        self.assertIsNone(response.context["action_form"])
++        self.assertNotContains(response, checkbox, html=True)
++
++    def test_user_message_on_no_action(self):
++        change_url = reverse(
++            "admin:admin_views_externalsubscriber_change", args=[self.s1.pk]
++        )
++        response = self.client.post(
++            change_url,
++            {
++                "CHANGE_FORM-action": "",
++                ACTION_CHECKBOX_NAME: [self.s1.pk],
++                "index": 0,
++            },
++        )
++        self.assertRedirects(response, change_url, fetch_redirect_response=False)
++        response = self.client.get(response.url)
++        self.assertContains(response, "No action selected.")
++
++    # RemovedInDjango70Warning.
++    def test_overridden_admin_action_methods(self):
++        self.client.force_login(self.superuser)
++        obj = ModelAction.objects.create()
++        change_url = reverse("admin:admin_views_modelaction_change", args=[obj.pk])
++        get_actions_overridden_msg = (
++            "Overriding get_actions() without the 'action_location' parameter is "
++            "deprecated. Update the signature to get_actions(self, request, "
++            "action_location=ActionLocation.CHANGE_LIST)."
++        )
++        with self.assertWarnsMessage(
++            RemovedInDjango70Warning, get_actions_overridden_msg
++        ):
++            response = self.client.get(change_url)
++        self.assertNotContains(response, "<div class='actions'>", html=True)
++
++        changelist_url = reverse("admin:admin_views_modelaction_changelist")
++        with warnings.catch_warnings(record=True) as warning_list:
++            warnings.simplefilter("always", RemovedInDjango70Warning)
++            warnings.filterwarnings("always", category=RemovedInDjango70Warning)
++            response = self.client.get(changelist_url)
++
++            message_warnings = [str(warning.message) for warning in warning_list]
++            expected_warnings = {
++                get_actions_overridden_msg,
++                "Overriding get_action_choices() without the 'action_location' "
++                "parameter is deprecated. Update the signature to "
++                "get_action_choices(self, request, default_choices=None, "
++                "action_location=ActionLocation.CHANGE_LIST).",
++                "Unpacking an action tuple is deprecated. "
++                "Use Action attributes instead.",
++                "Using indexes on an action tuple is deprecated. "
++                "Use Action attributes instead.",
++            }
++            self.assertEqual(set(message_warnings), expected_warnings)
++        self.assertContains(response, "Delete selected model actions (extra)")
++
++        action_data = {
++            ACTION_CHECKBOX_NAME: [obj.pk],
++            "action": "delete_selected",
++            "index": 0,
++        }
++        get_actions_overridden_msg = (
++            "Overriding get_actions() without the 'action_location' parameter is "
++            "deprecated. Update the signature to get_actions(self, request, "
++            "action_location=ActionLocation.CHANGE_LIST)."
++        )
++        with self.assertWarnsMessage(
++            RemovedInDjango70Warning, get_actions_overridden_msg
++        ):
++            response = self.client.post(
++                reverse("admin:admin_views_modelaction_changelist"), action_data
++            )
++        self.assertContains(
++            response, "Are you sure you want to delete the selected model action?"
++        )
+diff --git a/tests/modeladmin/test_actions.py b/tests/modeladmin/test_actions.py
+index fa3108ce08ad..6168039666c1 100644
+--- a/tests/modeladmin/test_actions.py
++++ b/tests/modeladmin/test_actions.py
+@@ -79,11 +79,11 @@ class AdminB(AdminBase):
+             actions = None
+ 
+         ma1 = AdminA(Band, admin.AdminSite())
+-        action_names = [name for _, name, _ in ma1._get_base_actions()]
++        action_names = [action.name for action in ma1._get_base_actions()]
+         self.assertEqual(action_names, ["delete_selected", "custom_action"])
+         # `actions = None` removes actions from superclasses.
+         ma2 = AdminB(Band, admin.AdminSite())
+-        action_names = [name for _, name, _ in ma2._get_base_actions()]
++        action_names = [action.name for action in ma2._get_base_actions()]
+         self.assertEqual(action_names, ["delete_selected"])
+ 
+     def test_global_actions_description(self):
+@@ -104,7 +104,7 @@ class BandAdmin(admin.ModelAdmin):
+ 
+         ma = BandAdmin(Band, admin_site)
+         self.assertEqual(
+-            [description for _, _, description in ma._get_base_actions()],
++            [action.description for action in ma._get_base_actions()],
+             [
+                 "Delete selected %(verbose_name_plural)s",
+                 "Site-wide admin action 1.",
+@@ -139,9 +139,9 @@ def custom_action_2(self, request, queryset):
+         self.assertEqual(ma.check(), [])
+         self.assertEqual(
+             [
+-                desc
+-                for _, name, desc in ma._get_base_actions()
+-                if name.startswith("custom_action")
++                action.description
++                for action in ma._get_base_actions()
++                if action.name.startswith("custom_action")
+             ],
+             [
+                 "Local admin action 1.",

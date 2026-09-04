@@ -1,0 +1,35 @@
+diff --git a/src/core/fieldhelper_mod.F90 b/src/core/fieldhelper_mod.F90
+index 0cc3a75c..8b3be1ff 100644
+--- a/src/core/fieldhelper_mod.F90
++++ b/src/core/fieldhelper_mod.F90
+@@ -71,7 +71,7 @@ SUBROUTINE set_field_arr_realk_impl(arr, val)
+             DO i = 1, ii
+                 DO j = 1, jj
+                     DO k = 1, kk
+-                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj
++                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj - 1
+                         arr(idx) = val
+                     END DO
+                 END DO
+@@ -134,7 +134,7 @@ SUBROUTINE set_field_arr_ifk_impl(arr, val)
+             DO i = 1, ii
+                 DO j = 1, jj
+                     DO k = 1, kk
+-                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj
++                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj - 1
+                         arr(idx) = val
+                     END DO
+                 END DO
+diff --git a/src/flow/pressuresolver_mod.F90 b/src/flow/pressuresolver_mod.F90
+index 3a80c520..aaa0eb63 100644
+--- a/src/flow/pressuresolver_mod.F90
++++ b/src/flow/pressuresolver_mod.F90
+@@ -951,7 +951,7 @@ SUBROUTINE accumulate_pcorr_impl(dp, hilf, n)
+             DO i = 1, ii
+                 DO j = 1, jj
+                     DO k = 1, kk
+-                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj
++                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj - 1
+                         dp(idx) = dp(idx) + hilf(idx)
+                     END DO
+                 END DO

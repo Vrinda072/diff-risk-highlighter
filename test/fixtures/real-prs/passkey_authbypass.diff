@@ -1,0 +1,1194 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2fce4cd..4ed1fae 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,25 @@
+ 
+ All notable changes to `passkey-kit` are recorded here. The `0.13.0` entry covers the ground-up **v1 overhaul** of the contract, SDK, bindings, and services; `0.13.1` wires live signer discovery onto Mercury's hosted indexer.
+ 
++## 0.16.3 — 2026-08-19
++
++- **Fixed unauthorized policy-signer removal.** `Signature::Policy` now always
++  invokes `policy__`, including for the policy's own `remove_signer` context.
++  A secretless policy map entry can no longer bypass a rejecting policy.
++- **Required policies now fail closed.** A policy referenced by another
++  signer's limits must remain stored and unexpired. Removing the policy now
++  revokes every dependent signer instead of deleting its stored expiration
++  gate while leaving the delegate authorized.
++- **Added full-stack regressions.** AddressV2 authorization now proves that a
++  removed policy revokes its dependent delegate and preserves wallet balances.
++  The smart-wallet contract metadata is bumped to `binver = 1.0.1`.
++- **Published the fixed WASM.** Testnet and mainnet now contain
++  `502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58`.
++  Existing wallets require an authorized upgrade. See
++  [`docs/deployments-2026-08-19.md`](./docs/deployments-2026-08-19.md).
++- **Regenerated `passkey-kit-sdk@0.8.1`.** The generated contract specification
++  now matches the fixed `binver = 1.0.1` WASM.
++
+ ## 0.16.2 — 2026-08-13
+ 
+ - **Fixed signer discovery in browsers.** `MercuryIndexer.getSigners()` now
+diff --git a/README.md b/README.md
+index 64e9949..8b56dfa 100644
+--- a/README.md
++++ b/README.md
+@@ -70,8 +70,8 @@ import { PasskeyKit } from "passkey-kit";
+ const kit = new PasskeyKit({
+   rpcUrl: "https://soroban-testnet.stellar.org",
+   networkPassphrase: "Test SDF Network ; September 2015",
+-  // Canonical v1 smart-wallet WASM hash (testnet); see docs/deployments-*.md
+-  walletWasmHash: "fdefad64b96837147e1c333e51f537b696eab925e9f147e63d597c04e3c903f0",
++  // Canonical smart-wallet WASM hash; see docs/deployments-*.md
++  walletWasmHash: "502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58",
+ });
+ ```
+ 
+@@ -235,7 +235,7 @@ Each method builds an `AssembledTransaction` (`WalletTx`) that wraps one contrac
+ | `updateEd25519(publicKey, limits, store, expiration?)` | `update_signer` | Update an Ed25519 signer. |
+ | `addPolicy(policy, limits, store, expiration?)` | `add_signer` | Add a policy signer (`policy` = `C…`). Invokes the policy's `install` hook. |
+ | `updatePolicy(policy, limits, store, expiration?)` | `update_signer` | Update a policy signer. |
+-| `remove(signerKey)` | `remove_signer` | Remove a signer. No policy code runs on this path. |
++| `remove(signerKey)` | `remove_signer` | Remove a signer. A policy entry must pass its own `policy__` check. |
+ | `upgrade(newWasmHash)` | `upgrade` | Replace the wallet's WASM (`Buffer`/`Uint8Array`, 32 bytes). |
+ | `getSigner(signerKey)` | `get_signer` | Read a signer entry from the ledger (temporary before persistent). Returns `SignerVal \| null`. |
+ 
+@@ -427,6 +427,11 @@ type SignerLimits = Map<string, SignerKey[] | undefined> | undefined;
+ - `Map` present but a contract → `undefined` — may authorize any call to that contract, no co-signers.
+ - `Map` present, contract → `[keys]` — may authorize calls to that contract **only if every listed key also approves** (required co-signers).
+ 
++A required policy key must remain installed as a signer and unexpired. Removing
++that policy immediately revokes every signer whose limits require it. A
++`Signature::Policy` always invokes `policy__`, including for the policy's own
++`remove_signer` context.
++
+ ```ts
+ // This signer may only call C…token, and only alongside a passkey co-signer.
+ const limits = new Map([["C…token", [SignerKey.Secp256r1(keyId)]]]);
+@@ -457,6 +462,7 @@ Signer and signature expiration are **UNIX timestamps in seconds** (inclusive: v
+ - **Deploy front-running remains an accepted residual.** Anyone who learns a `keyId` before deployment could place arbitrary code at the derived address. A signer getter check alone is not proof of ownership, because arbitrary code can answer it however the client expects. Since `0.16.0` `connectWallet` binds accepted code identity (`acceptedWasmHashes`) before reading any signer state, for any address that did not come from trusted local storage. A derivation-resolved address is still not authenticated by that check alone — see the [security analysis](docs/security-deterministic-deployer.md#accepted-residual-address-squatting).
+ - **WebAuthn requires User Presence (UP), not User Verification (UV).** The contract requires the UP flag but not UV (biometric/PIN), so it stays compatible with non-UV authenticators. Enforce UV at the client/relayer layer if you need it.
+ - **Value-moving policies need a cumulative cap or a co-signer.** A `Signature::Policy` carries no secret, so a per-transfer cap alone is trivially drained by repeated capped transfers. See the [contract interface](#contract-interface) and `sample-policy`.
++- **Existing `binver = 1.0.0` wallets require an authorized upgrade.** Installing the fixed WASM does not change deployed wallet instances. Upgrade each wallet to the canonical `binver = 1.0.1` hash in the current deployment manifest.
+ 
+ ## Contract interface
+ 
+@@ -491,7 +497,7 @@ contractId = sha256(XDR(HashIdPreimage::EnvelopeTypeContractId {
+ - The canonical deployer keypair is `Keypair.fromRawEd25519Seed(sha256("kalepail"))`. It salts the deploy and signs the deploy authorization — it never pays fees and never controls the wallet — but its determinism is **load-bearing**: overriding `deploySource` changes every derived address and breaks keyId → wallet discovery.
+ - The WASM hash is deliberately **not** in the preimage, so an `upgrade` never moves a wallet's address.
+ 
+-This tuple is normative and must never change. See [`docs/deployments-testnet-2026-07-11.md`](./docs/deployments-testnet-2026-07-11.md) for the canonical WASM hashes, the deployer `G…` address, and the full derivation spec (including the deploy-front-running consequence in [Caveats](#caveats)).
++This tuple is normative and must never change. See [`docs/deployments-2026-08-19.md`](./docs/deployments-2026-08-19.md) for the canonical WASM hash, upload transactions, and upgrade guidance.
+ 
+ ## Repository layout & development
+ 
+diff --git a/contracts/Cargo.lock b/contracts/Cargo.lock
+index 6a32138..3d0cf82 100644
+--- a/contracts/Cargo.lock
++++ b/contracts/Cargo.lock
+@@ -1444,7 +1444,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+ 
+ [[package]]
+ name = "smart-wallet"
+-version = "1.0.0"
++version = "1.0.1"
+ dependencies = [
+  "base64",
+  "ed25519-dalek",
+diff --git a/contracts/sample-policy/src/lib.rs b/contracts/sample-policy/src/lib.rs
+index 5d1c436..56ad2c5 100644
+--- a/contracts/sample-policy/src/lib.rs
++++ b/contracts/sample-policy/src/lib.rs
+@@ -40,8 +40,9 @@
+ //! - **Single-charge accounting.** This policy COMMITS spend in
+ //!   `policy__`. That is safe against multi-charging because the v1 wallet
+ //!   invokes limit-key policies only after every side-effect-free requirement
+-//!   of the candidate signer has already passed (co-signer presence, stored
+-//!   policy expiration), so a losing candidate never charges the allowance.
++//!   of the candidate signer has already passed (co-signer presence, required
++//!   policy presence and expiration), so a losing candidate never charges the
++//!   allowance.
+ //!   Two caveats a copied policy inherits: never combine multiple
+ //!   state-committing policies in one required-keys list (an earlier
+ //!   policy's commit survives a later one's rejection if the auth succeeds
+diff --git a/contracts/smart-wallet-interface/src/lib.rs b/contracts/smart-wallet-interface/src/lib.rs
+index 04b79e4..b524a1e 100644
+--- a/contracts/smart-wallet-interface/src/lib.rs
++++ b/contracts/smart-wallet-interface/src/lib.rs
+@@ -108,8 +108,9 @@ pub trait PolicyInterface {
+     ///
+     /// When used inside another signer's limits, `policy__` is invoked only
+     /// AFTER every side-effect-free requirement of that candidate has passed
+-    /// (co-signer presence, stored-policy expiration), so a value-committing
+-    /// policy is not charged for a candidate that was going to fail anyway.
++    /// (co-signer presence, required-policy presence and expiration), so a
++    /// value-committing policy is not charged for a candidate that was going
++    /// to fail anyway.
+     /// A policy key duplicated within one required-keys list is invoked only
+     /// once (deduplicated). Residual: with two or more DISTINCT policies in
+     /// ONE required-keys list, an earlier policy's committed state survives a
+@@ -121,12 +122,13 @@ pub trait PolicyInterface {
+     ///
+     /// ## Self-removal
+     ///
+-    /// `policy__` is NOT consulted when the only context being authorized is
+-    /// this policy signer's own `remove_signer` on the wallet: a signer can
+-    /// always self-remove, so a rejecting or broken policy cannot block its
+-    /// own removal. Do not rely on `policy__` to keep the policy installed.
+-    /// (Removal of a wallet's LAST signer — or last durable admin — is still
+-    /// rejected at execution: `Error::LastSigner`/`Error::LastAdminSigner`.)
++    /// `policy__` is ALWAYS consulted for a `Signature::Policy` entry,
++    /// including when the only context is that policy signer's own
++    /// `remove_signer`. A rejecting policy therefore vetoes its own removal.
++    /// Another wallet signer may still authorize `remove_signer` without
++    /// including the policy entry. Removal of a wallet's LAST signer — or
++    /// last durable admin — is also rejected at execution:
++    /// `Error::LastSigner`/`Error::LastAdminSigner`.
+     ///
+     /// ## Do not make a policy your only admin
+     ///
+diff --git a/contracts/smart-wallet-interface/src/types.rs b/contracts/smart-wallet-interface/src/types.rs
+index b9986fe..2dcd4f9 100644
+--- a/contracts/smart-wallet-interface/src/types.rs
++++ b/contracts/smart-wallet-interface/src/types.rs
+@@ -100,54 +100,24 @@ pub enum Error {
+ #[derive(Clone, Debug, Eq, PartialEq)]
+ pub struct SignerExpiration(pub Option<u64>);
+ 
+-/// Restrictions on which auth contexts a signer may authorize.
++/// Authorization limits for a signer.
+ ///
+-/// - `None`: unlimited. The signer can authorize anything, including
+-///   `CreateContract*` (deploy) contexts and this wallet's own admin
+-///   functions.
+-/// - `Some(empty map)`: NO permissions (fail-closed). The signer can authorize
+-///   nothing except removing itself (see below). v1 breaking change: pre-1.0
+-///   an empty map meant unlimited, leaving two unlimited encodings and no
+-///   "none" encoding.
+-/// - `Some({address -> None})`: the signer may authorize any invocation of
+-///   contract `address`, with no co-signers required.
+-/// - `Some({address -> Some([keys])})`: the signer may authorize invocations
+-///   of contract `address` only if every listed key also APPROVES. The listed
+-///   keys are required CO-SIGNERS.
++/// - `None`: unlimited.
++/// - `Some(empty map)`: no independent authority.
++/// - `Some({address -> None})`: any invocation of `address`.
++/// - `Some({address -> Some([keys])})`: any invocation of `address` only when
++///   every listed key also approves.
+ ///
+-/// ## Required co-signers are scope-independent approvers
++/// A required key approves independently of its own limits. A required
++/// non-policy key must appear in the signatures map and pass full verification.
++/// A required policy need not appear there, but it must remain stored and
++/// unexpired. It must also approve through `policy__`. Removing it revokes all
++/// dependent signers.
+ ///
+-/// A required co-signer's OWN `SignerLimits` do NOT constrain its co-signer
+-/// role — a key's limits govern only its INDEPENDENT authority (whether it can
+-/// cover a context on its own). This is symmetric across key kinds:
+-///
+-/// - A non-policy required key must be present in the transaction's signatures
+-///   map (and is therefore fully verified — stored, unexpired, crypto-valid —
+-///   in pass 2 of `__check_auth`). Its own limits are not consulted.
+-/// - A policy required key must APPROVE the specific context via `policy__`
+-///   (it need not appear in the signatures map). If the policy key is also
+-///   stored on this wallet it must be unexpired, but its own stored limits are
+-///   NOT recursively enforced.
+-///
+-/// Consequence: `Some(empty map)` on a key disables that key's INDEPENDENT
+-/// coverage only. A key with empty limits can still serve as a required
+-/// co-signer for another signer. Because no stored policy's limits are
+-/// re-entered, there is no policy-limit recursion (and thus no cycle to
+-/// guard against).
+-///
+-/// Notes:
+-/// - Deploy permission is NOT grantable through limits: `CreateContract*`
+-///   contexts require an unlimited (`None`) signer. (Pre-1.0 a limits entry
+-///   for the wallet's own address doubled as deploy permission.)
+-/// - A limited signer may ALWAYS authorize `remove_signer(its own key)` on
+-///   this wallet, regardless of its limits map, and without co-signer
+-///   requirements. Self-removal is never escalation. (Execution still
+-///   rejects removing the wallet's last durable admin signer — see
+-///   `Error::LastAdminSigner`.)
+-/// - Granting a limits entry for the wallet's own address grants the wallet's
+-///   admin surface (`add_signer`, `update_signer`, `remove_signer`,
+-///   `upgrade`). A signer that can add signers can add an unlimited signer,
+-///   so treat such a grant as equivalent to full control of the wallet.
++/// Limited signers cannot authorize `CreateContract*`. A limited cryptographic
++/// signer can remove itself without satisfying its limits. A policy signature
++/// always calls `policy__`, including during self-removal. A limit for the
++/// wallet address grants access to the wallet administration functions.
+ #[contracttype]
+ #[derive(Clone, Debug, Eq, PartialEq)]
+ pub struct SignerLimits(pub Option<Map<Address, Option<Vec<SignerKey>>>>);
+diff --git a/contracts/smart-wallet/Cargo.toml b/contracts/smart-wallet/Cargo.toml
+index 4cfc3ee..e5d17e9 100644
+--- a/contracts/smart-wallet/Cargo.toml
++++ b/contracts/smart-wallet/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "smart-wallet"
+-version.workspace = true
++version = "1.0.1"
+ authors.workspace = true
+ license.workspace = true
+ edition.workspace = true
+diff --git a/contracts/smart-wallet/src/context.rs b/contracts/smart-wallet/src/context.rs
+index 927a24b..2cc2ee3 100644
+--- a/contracts/smart-wallet/src/context.rs
++++ b/contracts/smart-wallet/src/context.rs
+@@ -4,7 +4,7 @@ use smart_wallet_interface::{
+ };
+ use soroban_sdk::{
+     auth::{Context, ContractContext},
+-    vec, Env, Symbol, TryFromVal, Vec,
++    vec, Env, Symbol, TryFromVal,
+ };
+ 
+ use crate::signer::{get_signer_val_storage, is_signer_expired, signer_expiration};
+@@ -35,15 +35,6 @@ pub fn is_self_removal_context(env: &Env, context: &Context, signer_key: &Signer
+     false
+ }
+ 
+-/// True iff `contexts` is EXACTLY ONE context and it is `signer_key`'s own
+-/// self-removal on this wallet. Used by pass 2 of `__check_auth` to let a
+-/// policy signer self-remove without consulting its (possibly rejecting)
+-/// `policy__` — but ONLY when nothing else is being authorized, so the skip
+-/// can never leak authority to another context.
+-pub fn is_sole_self_removal(env: &Env, contexts: &Vec<Context>, signer_key: &SignerKey) -> bool {
+-    contexts.len() == 1 && is_self_removal_context(env, &contexts.get_unchecked(0), signer_key)
+-}
+-
+ /// Decide whether `signer_key` (with `signer_limits`) may authorize
+ /// `context`.
+ ///
+@@ -62,9 +53,9 @@ pub fn is_sole_self_removal(env: &Env, contexts: &Vec<Context>, signer_key: &Sig
+ ///
+ /// Expiration of the candidate itself is NOT checked here — every signatures
+ /// map entry gets a single-point expiration check in pass 2 of
+-/// `__check_auth`. Stored policy keys referenced inside limits ARE
+-/// expiration-checked here (boolean), because they need not appear in the
+-/// signatures map and would otherwise never be checked.
++/// `__check_auth`. Policy keys referenced inside limits must still be stored
++/// and unexpired, because they need not appear in the signatures map and would
++/// otherwise bypass both checks.
+ pub fn verify_context(
+     env: &Env,
+     context: &Context,
+@@ -116,18 +107,18 @@ pub fn verify_context(
+ ///   expiration and crypto are enforced by pass 2 of `__check_auth`. Their
+ ///   own `SignerLimits` are NOT consulted here.
+ /// - Policy keys need not be in the signatures map (they can be "adjacent"
+-///   requirements). The policy must APPROVE this context via `policy__`. If
+-///   the policy key is also stored on this wallet it must be unexpired, but
+-///   its own `SignerLimits` are NOT recursively enforced. Because no stored
+-///   policy's limits are re-entered, there is no policy-limit recursion and
+-///   thus no cycle to guard against.
++///   requirements), but they must still be stored and unexpired on this
++///   wallet. The policy must APPROVE this context via `policy__`. Its own
++///   `SignerLimits` are NOT recursively enforced. Because no stored policy's
++///   limits are re-entered, there is no policy-limit recursion and thus no
++///   cycle to guard against.
+ ///
+ /// ## Ordering: side-effect-free checks first, policies last
+ ///
+ /// `policy__` may commit state (e.g. a cumulative spend allowance), so it
+ /// must never run for a candidate that was going to fail anyway. The checks
+ /// therefore run in three phases: (1) presence of every non-policy required
+-/// key, (2) expiration of every STORED required policy, (3) only then the
++/// key, (2) presence and expiration of every required policy, (3) only then the
+ /// `policy__` invocations. A candidate that fails phase 1 or 2 rejects
+ /// without any policy having been consulted, so a value-committing policy is
+ /// charged only when its candidate's every other requirement holds.
+@@ -165,15 +156,18 @@ fn verify_signer_limit_keys(
+         }
+     }
+ 
+-    // Phase 2: if a required policy is stored on this wallet it must be
+-    // unexpired (it need not be in the signatures map, so pass 2 would not
+-    // otherwise check it). Still no policy code runs.
++    // Phase 2: every required policy must still be stored on this wallet and
++    // unexpired. A missing policy fails closed: removing it must revoke every
++    // signer whose limits require it, not erase a stored expiration gate.
++    // Policies need not be in the signatures map, so pass 2 of `__check_auth`
++    // would not otherwise check them. Still no policy code runs.
+     for required_key in required_keys.iter() {
+         if matches!(required_key, SignerKey::Policy(_)) {
+-            if let Some((signer_val, _)) = get_signer_val_storage(env, &required_key, true) {
+-                if is_signer_expired(env, signer_expiration(&signer_val)) {
+-                    return false;
+-                }
++            let Some((signer_val, _)) = get_signer_val_storage(env, &required_key, true) else {
++                return false;
++            };
++            if is_signer_expired(env, signer_expiration(&signer_val)) {
++                return false;
+             }
+         }
+     }
+diff --git a/contracts/smart-wallet/src/lib.rs b/contracts/smart-wallet/src/lib.rs
+index 07514f6..aa6485b 100644
+--- a/contracts/smart-wallet/src/lib.rs
++++ b/contracts/smart-wallet/src/lib.rs
+@@ -1,6 +1,6 @@
+ #![no_std]
+ 
+-use context::{is_sole_self_removal, verify_context};
++use context::verify_context;
+ use signer::{
+     get_signer_val_storage, is_durable, is_durable_admin, is_signer_expired, process_signer,
+     signer_expiration, signer_limits, store_signer,
+@@ -380,29 +380,19 @@ impl CustomAccountInterface for Contract {
+             match signature {
+                 Signature::Policy => {
+                     if let SignerKey::Policy(policy) = &signer_key {
+-                        // Self-removal exception: when the
+-                        // ONLY context being authorized is this policy
+-                        // signer's own removal, the policy is NOT consulted —
+-                        // otherwise a rejecting (or broken) sole policy
+-                        // signer could block its own removal forever.
+-                        // Removing a policy signer only revokes that policy's
+-                        // independent coverage authority (its role as a
+-                        // required co-signer in other signers' limits is
+-                        // storage-independent), so this is never an
+-                        // escalation — it mirrors pass 1's "a signer may
+-                        // always remove itself" rule. Any additional context
+-                        // disables the skip.
+-                        if !is_sole_self_removal(&env, &auth_contexts, &signer_key) {
+-                            // Policy-as-signature sees the FULL context list
+-                            // (a policy used inside another signer's limits
+-                            // sees one context at a time). A rejecting policy
+-                            // fails the whole authorization.
+-                            PolicyClient::new(&env, policy).policy__(
+-                                &env.current_contract_address(),
+-                                &signer_key,
+-                                &auth_contexts,
+-                            );
+-                        }
++                        // A policy signature carries no cryptographic material,
++                        // so every policy entry must consult `policy__`, including
++                        // sole self-removal. A rejecting policy therefore vetoes
++                        // its removal. Another wallet signer can still authorize
++                        // `remove_signer` without including this policy entry.
++                        // Policy-as-signature sees the FULL context list (a policy
++                        // used inside another signer's limits sees one context at
++                        // a time). A rejecting policy fails the whole auth.
++                        PolicyClient::new(&env, policy).policy__(
++                            &env.current_contract_address(),
++                            &signer_key,
++                            &auth_contexts,
++                        );
+                     } else {
+                         return Err(Error::SignatureKeyValueMismatch);
+                     }
+diff --git a/contracts/smart-wallet/src/tests/test_auth.rs b/contracts/smart-wallet/src/tests/test_auth.rs
+index f3aa074..76c462e 100644
+--- a/contracts/smart-wallet/src/tests/test_auth.rs
++++ b/contracts/smart-wallet/src/tests/test_auth.rs
+@@ -971,7 +971,7 @@ fn policy_as_limit_called_per_context() {
+     let token = Address::generate(&env);
+     let a = Ed25519Signer::new(1);
+ 
+-    let (wallet, _) = register_wallet(
++    let (wallet, client) = register_wallet(
+         &env,
+         &a.signer(
+             &env,
+@@ -985,6 +985,13 @@ fn policy_as_limit_called_per_context() {
+         ),
+     );
+ 
++    client.mock_all_auths().add_signer(&Signer::Policy(
++        policy.clone(),
++        SignerExpiration(None),
++        empty_limits(&env),
++        SignerStorage::Temporary,
++    ));
++
+     let payload = payload(&env, 7);
+     let contexts = vec![
+         &env,
+@@ -1243,11 +1250,11 @@ fn rejecting_policy_as_signature_fails_auth() {
+ 
+ // --- Policy self-removal ---------------------------------------------------------
+ 
+-/// A policy signer can ALWAYS self-remove, even when its `policy__` rejects:
+-/// when the sole context is the policy's own `remove_signer`, pass 2 skips
+-/// the policy consultation.
++/// A policy signer cannot authorize its own removal unless its `policy__`
++/// approves the removal context. `Signature::Policy` has no cryptographic
++/// material, so the wallet must never skip that policy consultation.
+ #[test]
+-fn rejecting_policy_can_self_remove() {
++fn rejecting_policy_cannot_self_remove() {
+     let env = test_env();
+     let policy = env.register(VetoPolicy, ());
+     let policy_key = SignerKey::Policy(policy.clone());
+@@ -1273,22 +1280,20 @@ fn rejecting_policy_can_self_remove() {
+     let payload = payload(&env, 7);
+     let contexts = vec![&env, remove_signer_context(&env, &wallet, &policy_key)];
+ 
+-    assert_eq!(
+-        check_auth(
+-            &env,
+-            &wallet,
+-            &payload,
+-            Signatures(map![&env, (policy_key.clone(), Signature::Policy)]),
+-            &contexts,
+-        ),
+-        Ok(())
++    let result = check_auth(
++        &env,
++        &wallet,
++        &payload,
++        Signatures(map![&env, (policy_key.clone(), Signature::Policy)]),
++        &contexts,
+     );
++    assert!(result.is_err(), "rejecting policy must veto removal");
+ }
+ 
+-/// The pass-2 skip applies ONLY when self-removal is the sole context: any
+-/// additional context re-enables the policy consultation (which vetoes).
++/// A rejecting policy vetoes its removal even when another signer covers an
++/// additional context in the same authorization tree.
+ #[test]
+-fn policy_self_removal_skip_requires_sole_context() {
++fn rejecting_policy_vetoes_removal_with_extra_context() {
+     let env = test_env();
+     let policy = env.register(VetoPolicy, ());
+     let policy_key = SignerKey::Policy(policy.clone());
+@@ -1332,16 +1337,14 @@ fn policy_self_removal_skip_requires_sole_context() {
+     );
+     assert!(
+         result.is_err(),
+-        "extra context must re-enable the policy consultation: {result:?}"
++        "rejecting policy must veto removal: {result:?}"
+     );
+ }
+ 
+-/// Self-removal skip × last-signer backstop: a SOLE (non-admin-shaped) rejecting
+-/// policy can still AUTHORIZE its own removal (the consultation skip), but
+-/// execution is rejected by the total-count guard — the skip is only ever
+-/// consequential on wallets with two or more signers.
++/// A sole rejecting policy fails during authentication before the last-signer
++/// execution guard is relevant.
+ #[test]
+-fn sole_rejecting_policy_self_removal_blocked_by_backstop() {
++fn sole_rejecting_policy_self_removal_fails_auth() {
+     use crate::{Contract, ContractClient};
+ 
+     let env = test_env();
+@@ -1349,8 +1352,7 @@ fn sole_rejecting_policy_self_removal_blocked_by_backstop() {
+     let policy_key = SignerKey::Policy(policy.clone());
+     let wallet = Address::generate(&env);
+ 
+-    // Non-admin-shaped (empty limits): the ADMIN counter is 0, so only the
+-    // total-count backstop stands between this removal and zero signers.
++    // Non-admin-shaped, with empty independent limits.
+     env.register_at(
+         &wallet,
+         Contract,
+@@ -1363,26 +1365,24 @@ fn sole_rejecting_policy_self_removal_blocked_by_backstop() {
+     );
+     let client = ContractClient::new(&env, &wallet);
+ 
+-    // AUTH passes: pass-1 self-removal rule + pass-2 consultation skip.
++    // AUTH fails because pass 2 always consults policy__.
+     let payload = payload(&env, 7);
+     let contexts = vec![&env, remove_signer_context(&env, &wallet, &policy_key)];
+-    assert_eq!(
+-        check_auth(
+-            &env,
+-            &wallet,
+-            &payload,
+-            Signatures(map![&env, (policy_key.clone(), Signature::Policy)]),
+-            &contexts,
+-        ),
+-        Ok(())
+-    );
++    assert!(check_auth(
++        &env,
++        &wallet,
++        &payload,
++        Signatures(map![&env, (policy_key.clone(), Signature::Policy)]),
++        &contexts,
++    )
++    .is_err());
+ 
+-    // EXECUTION rejects, full-stack.
++    // Full-stack execution rejects and preserves the signer.
+     let root_invocation = remove_signer_invocation(&env, &wallet, &policy_key);
+     let nonce = 31i64;
+     let signature_expiration_ledger = env.ledger().sequence();
+     let root_auth = soroban_sdk::xdr::SorobanAuthorizationEntry {
+-        credentials: soroban_sdk::xdr::SorobanCredentials::Address(
++        credentials: soroban_sdk::xdr::SorobanCredentials::AddressV2(
+             soroban_sdk::xdr::SorobanAddressCredentials {
+                 address: wallet.clone().try_into().unwrap(),
+                 nonce,
+@@ -1394,12 +1394,10 @@ fn sole_rejecting_policy_self_removal_blocked_by_backstop() {
+         ),
+         root_invocation,
+     };
+-    assert_eq!(
+-        client
+-            .set_auths(&[root_auth])
+-            .try_remove_signer(&policy_key),
+-        Err(Ok(Error::LastSigner))
+-    );
++    assert!(client
++        .set_auths(&[root_auth])
++        .try_remove_signer(&policy_key)
++        .is_err());
+     assert!(client.get_signer(&policy_key).is_some());
+ }
+ 
+@@ -1449,8 +1447,8 @@ fn policy_signature_removing_other_key_still_consults_policy() {
+     );
+ }
+ 
+-/// Full-stack self-removal: it executes end-to-end through
+-/// address credentials, and the signer is gone afterwards.
++/// Full-stack policy self-removal must execute `policy__`. A rejecting policy
++/// makes address-credential authentication fail and remains installed.
+ #[test]
+ fn rejecting_policy_self_removal_full_stack() {
+     let env = test_env();
+@@ -1493,17 +1491,18 @@ fn rejecting_policy_self_removal_full_stack() {
+         root_invocation,
+     };
+ 
+-    client.set_auths(&[root_auth]).remove_signer(&policy_key);
+-    assert_eq!(client.get_signer(&policy_key), None);
++    assert!(client
++        .set_auths(&[root_auth])
++        .try_remove_signer(&policy_key)
++        .is_err());
++    assert!(client.get_signer(&policy_key).is_some());
+ }
+ 
+ /// Regression: a wallet whose SOLE signer is a
+ /// REJECTING policy that is Persistent, non-expiring, and admin-capable via a
+ /// wallet-self limits entry (`{wallet: None}`) must NOT be able to
+-/// self-remove down to zero signers. The consultation skip still lets the
+-/// AUTHORIZATION pass (the policy cannot veto its own sole removal), but the
+-/// broadened durable-admin counter makes EXECUTION reject with
+-/// `LastAdminSigner`.
++/// self-remove. Authentication now fails before the durable-admin execution
++/// guard is relevant.
+ #[test]
+ fn sole_admin_capable_policy_cannot_self_remove() {
+     use crate::{Contract, ContractClient};
+@@ -1528,23 +1527,19 @@ fn sole_admin_capable_policy_cannot_self_remove() {
+     );
+     let client = ContractClient::new(&env, &wallet);
+ 
+-    // The AUTH layer accepts the self-removal (pass 1 self-removal rule +
+-    // pass 2 consultation skip): the rejecting policy cannot block it.
++    // The AUTH layer consults and is rejected by policy__.
+     let payload = payload(&env, 7);
+     let contexts = vec![&env, remove_signer_context(&env, &wallet, &policy_key)];
+-    assert_eq!(
+-        check_auth(
+-            &env,
+-            &wallet,
+-            &payload,
+-            Signatures(map![&env, (policy_key.clone(), Signature::Policy)]),
+-            &contexts,
+-        ),
+-        Ok(())
+-    );
++    assert!(check_auth(
++        &env,
++        &wallet,
++        &payload,
++        Signatures(map![&env, (policy_key.clone(), Signature::Policy)]),
++        &contexts,
++    )
++    .is_err());
+ 
+-    // ...but EXECUTION rejects: this signer is the wallet's last durable
+-    // admin. Full-stack, through real address credentials.
++    // Full-stack execution rejects and preserves the signer.
+     let root_invocation = remove_signer_invocation(&env, &wallet, &policy_key);
+     let nonce = 11i64;
+     let signature_expiration_ledger = env.ledger().sequence();
+@@ -1562,12 +1557,10 @@ fn sole_admin_capable_policy_cannot_self_remove() {
+         root_invocation,
+     };
+ 
+-    assert_eq!(
+-        client
+-            .set_auths(&[root_auth])
+-            .try_remove_signer(&policy_key),
+-        Err(Ok(Error::LastAdminSigner))
+-    );
++    assert!(client
++        .set_auths(&[root_auth])
++        .try_remove_signer(&policy_key)
++        .is_err());
+     assert!(client.get_signer(&policy_key).is_some());
+ }
+ 
+@@ -1618,6 +1611,12 @@ fn losing_candidate_does_not_invoke_policy() {
+         contract_limits(&env, &token, Some(vec![&env, policy_key.clone()])),
+         SignerStorage::Persistent,
+     ));
++    client.mock_all_auths().add_signer(&Signer::Policy(
++        policy.clone(),
++        SignerExpiration(None),
++        empty_limits(&env),
++        SignerStorage::Temporary,
++    ));
+ 
+     let payload = payload(&env, 7);
+     let contexts = vec![&env, transfer_context(&env, &token, &wallet, 1)];
+@@ -1732,7 +1731,7 @@ fn duplicated_policy_entry_invoked_once() {
+     let token = Address::generate(&env);
+     let a = Ed25519Signer::new(1);
+ 
+-    let (wallet, _) = register_wallet(
++    let (wallet, client) = register_wallet(
+         &env,
+         &a.signer(
+             &env,
+@@ -1746,6 +1745,13 @@ fn duplicated_policy_entry_invoked_once() {
+         ),
+     );
+ 
++    client.mock_all_auths().add_signer(&Signer::Policy(
++        policy.clone(),
++        SignerExpiration(None),
++        empty_limits(&env),
++        SignerStorage::Temporary,
++    ));
++
+     let payload = payload(&env, 7);
+     let contexts = vec![&env, transfer_context(&env, &token, &wallet, 1)];
+ 
+@@ -1889,6 +1895,46 @@ fn temporary_signer_auth_extends_ttl() {
+     );
+ }
+ 
++/// A required policy must still be installed as a signer. Removing the policy
++/// must revoke every signer whose limits require it, instead of silently
++/// dropping the policy's stored expiration gate.
++#[test]
++fn missing_stored_policy_limit_key_rejects() {
++    let env = test_env();
++    let policy = env.register(CountingPolicy, ());
++    let token = Address::generate(&env);
++    let a = Ed25519Signer::new(1);
++
++    let (wallet, _) = register_wallet(
++        &env,
++        &a.signer(
++            &env,
++            SignerExpiration(None),
++            contract_limits(
++                &env,
++                &token,
++                Some(vec![&env, SignerKey::Policy(policy.clone())]),
++            ),
++            SignerStorage::Persistent,
++        ),
++    );
++
++    let payload = payload(&env, 7);
++    let contexts = vec![&env, transfer_context(&env, &token, &wallet, 1)];
++
++    assert_eq!(
++        check_auth(
++            &env,
++            &wallet,
++            &payload,
++            Signatures(map![&env, (a.signer_key(&env), a.sign(&env, &payload))]),
++            &contexts,
++        ),
++        Err(Ok(Error::MissingContext))
++    );
++    assert_eq!(policy_count(&env, &policy), 0);
++}
++
+ /// An expired stored policy referenced in limits rejects the candidate
+ /// (boolean, in pass 1 — such keys never reach pass 2).
+ #[test]
+diff --git a/contracts/smart-wallet/src/tests/test_integration.rs b/contracts/smart-wallet/src/tests/test_integration.rs
+index edcc749..da64eaa 100644
+--- a/contracts/smart-wallet/src/tests/test_integration.rs
++++ b/contracts/smart-wallet/src/tests/test_integration.rs
+@@ -166,6 +166,87 @@ fn ed25519_with_policy_limits_full_stack() {
+     println!("{:?}", env.cost_estimate().budget().print());
+ }
+ 
++/// Removing a required policy signer must immediately revoke every dependent
++/// delegate. The policy contract stays installed, so the old implementation
++/// would still call it and authorize this transfer after deleting its stored
++/// expiration gate.
++#[test]
++fn removed_required_policy_revokes_delegate_full_stack() {
++    let env = test_env();
++    env.ledger().set_timestamp(1_000_000);
++
++    let signature_expiration_ledger = env.ledger().sequence();
++    let amount = 5_000_000i128;
++    let owner = Ed25519Signer::new(71);
++    let delegate = Ed25519Signer::new(72);
++
++    let (wallet, wallet_client) = register_wallet(
++        &env,
++        &owner.signer(
++            &env,
++            SignerExpiration(None),
++            SignerLimits(None),
++            SignerStorage::Persistent,
++        ),
++    );
++    let (sac, sac_admin_client, sac_client) = register_sac(&env);
++    sac_admin_client
++        .mock_all_auths()
++        .mint(&wallet, &100_000_000);
++
++    let policy = env.register(PolicyContract, ());
++    let policy_key = SignerKey::Policy(policy.clone());
++
++    wallet_client.mock_all_auths().add_signer(&delegate.signer(
++        &env,
++        SignerExpiration(None),
++        SignerLimits(Some(map![
++            &env,
++            (
++                sac.clone(),
++                Some(soroban_sdk::vec![&env, policy_key.clone()])
++            ),
++        ])),
++        SignerStorage::Temporary,
++    ));
++    wallet_client.mock_all_auths().add_signer(&Signer::Policy(
++        policy,
++        SignerExpiration(Some(1_000_100)),
++        SignerLimits(None),
++        SignerStorage::Temporary,
++    ));
++
++    // The owner may remove the policy. Dependent delegates must fail closed.
++    wallet_client.mock_all_auths().remove_signer(&policy_key);
++    assert_eq!(wallet_client.get_signer(&policy_key), None);
++
++    let recipient = Address::generate(&env);
++    let root_invocation = transfer_invocation(&sac, &wallet, &recipient, amount);
++    let nonce = i64::from(env.ledger().sequence());
++    let payload = auth_payload(&env, nonce, signature_expiration_ledger, &root_invocation);
++    let root_auth = SorobanAuthorizationEntry {
++        credentials: SorobanCredentials::AddressV2(SorobanAddressCredentials {
++            address: wallet.clone().into(),
++            nonce,
++            signature_expiration_ledger,
++            signature: Signatures(map![
++                &env,
++                (delegate.signer_key(&env), delegate.sign(&env, &payload)),
++            ])
++            .try_into()
++            .unwrap(),
++        }),
++        root_invocation,
++    };
++
++    assert!(sac_client
++        .set_auths(&[root_auth])
++        .try_transfer(&wallet, &recipient, &amount)
++        .is_err());
++    assert_eq!(sac_client.balance(&wallet), 100_000_000);
++    assert_eq!(sac_client.balance(&recipient), 0);
++}
++
+ /// The core product path, previously untested (audit F1): a WebAuthn passkey
+ /// authorizes a real transfer through address credentials.
+ #[test]
+diff --git a/demo/.env.example b/demo/.env.example
+index abf724d..101bb44 100644
+--- a/demo/.env.example
++++ b/demo/.env.example
+@@ -9,9 +9,8 @@
+ VITE_rpcUrl="https://soroban-testnet.stellar.org"
+ VITE_networkPassphrase="Test SDF Network ; September 2015"
+ 
+-# Smart-wallet WASM hash — pinned from docs/deployments-testnet-2026-07-11.md
+-# (canonical source). Re-pinned after the contract audit gate + bindings regen.
+-VITE_walletWasmHash="fdefad64b96837147e1c333e51f537b696eab925e9f147e63d597c04e3c903f0"
++# Smart-wallet WASM hash — pinned from docs/deployments-2026-08-19.md.
++VITE_walletWasmHash="502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58"
+ 
+ # --- Tokens (SAC / SEP-41) ---------------------------------------------------
+ # Native XLM SAC on testnet.
+diff --git a/demo/.env.production b/demo/.env.production
+index 12a7476..15577dd 100644
+--- a/demo/.env.production
++++ b/demo/.env.production
+@@ -12,8 +12,8 @@
+ VITE_rpcUrl="https://soroban-testnet.stellar.org"
+ VITE_networkPassphrase="Test SDF Network ; September 2015"
+ 
+-# Canonical post-audit smart-wallet WASM hash (docs/deployments-testnet-2026-07-11.md).
+-VITE_walletWasmHash="fdefad64b96837147e1c333e51f537b696eab925e9f147e63d597c04e3c903f0"
++# Canonical fixed smart-wallet WASM hash (docs/deployments-2026-08-19.md).
++VITE_walletWasmHash="502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58"
+ 
+ # Native XLM SAC on testnet.
+ VITE_nativeContractId="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+diff --git a/docs/deployments-2026-08-19.md b/docs/deployments-2026-08-19.md
+new file mode 100644
+index 0000000..4ec3e34
+--- /dev/null
++++ b/docs/deployments-2026-08-19.md
+@@ -0,0 +1,110 @@
++# passkey-kit smart-wallet security release — 2026-08-19
++
++This manifest is the canonical source for the fixed smart-wallet WASM.
++It supersedes the smart-wallet hash in `deployments-testnet-2026-07-11.md`.
++The sample-policy and example-contract hashes remain unchanged.
++
++## Fixed artifact
++
++| Component | Cargo package | Bytes | SHA-256 / network WASM hash |
++|---|---|---:|---|
++| Smart wallet | `smart-wallet` | 33,094 | `502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58` |
++
++- Source commit: `1eafc888a2bdfb210277a19f51f654a397cb4c68`
++- Rust/Cargo: `1.94.0`
++- `soroban-sdk`: `27.0.0` (`e5cb4b52c3da8e56fc48adfd7b85d85976c1a059`)
++- Stellar CLI: `27.1.0` (`8e402ea28202950b272fbabc34caad4d2f64fe87`)
++- Contract metadata: `binver: 1.0.1`, `rsver: 1.94.0`, `rssdkver: 27.0.0`
++- Build command: `stellar contract build --locked --package smart-wallet --out-dir out`
++
++Two clean optimized builds produced the same hash and size.
++
++## Security behavior
++
++The release fixes two authorization failures.
++
++- Every `Signature::Policy` entry now calls `policy__`.
++- A required policy must remain stored and unexpired.
++- Removing a required policy now revokes every dependent signer.
++- A missing required policy now fails closed with `MissingContext`.
++
++The full Rust workspace suite passed with 104 tests.
++The library clippy check and formatting check also passed.
++
++## Testnet
++
++- Network passphrase: `Test SDF Network ; September 2015`
++- Upload source: `GD2GA2JF6OJURU36COZQWJLPEJ7XC3GB25TBD7U4ALCGKOG27262RICH`
++- Upload transaction: `aa5a07778a72c9dde8cfbecfc51a76f9451ebcf563b2d75591d97aa2eb76c00a`
++- Upload ledger: `4226258`
++- Upload time: `2026-08-19T15:31:39Z`
++
++### Live smoke wallet
++
++- Instance: `CDIK3DUSSYAHV6H4PJPZOCBSB4QLGO22LKTHJDZLGIVOSZDWWV7ZHHXO`
++- Deploy transaction: `54f00d6595b6089504309682b00b477de8aef1409289e224a82e7ca16ba726a9`
++- Deploy ledger: `4226310`
++- Deploy time: `2026-08-19T15:36:00Z`
++- Constructor signer: `GD2GA2JF6OJURU36COZQWJLPEJ7XC3GB25TBD7U4ALCGKOG27262RICH`
++- Storage: `Persistent`
++- Expiration: none
++- Limits: none
++
++The live `get_signer` call returned `{"Ed25519":[[null],[null]]}`.
++Mercury returned this wallet and its live constructor signer.
++
++## Mainnet
++
++- Network passphrase: `Public Global Stellar Network ; September 2015`
++- Upload source: `GBDVX4VELCDSQ54KQJYTNHXAHFLBCA77ZY2USQBM4CSHTTV7DME7KALE`
++- Upload transaction: `df21ca2177301118758fd3175ca1fcc96bd606f46f93a10405194f44a77b8de1`
++- Upload ledger: `64028093`
++- Upload time: `2026-08-19T15:34:20Z`
++
++The upload installs code only.
++It does not deploy a singleton or upgrade an existing wallet.
++
++## Verification
++
++The local, testnet, and mainnet bytes produced the same SHA-256 hash.
++
++```sh
++shasum -a 256 contracts/out/smart_wallet.wasm
++stellar -q contract fetch \
++  --wasm-hash 502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58 \
++  --network testnet | shasum -a 256
++stellar -q contract fetch \
++  --wasm-hash 502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58 \
++  --network mainnet | shasum -a 256
++```
++
++Each command returned this hash:
++
++```text
++502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58
++```
++
++## Existing wallets
++
++Existing `binver = 1.0.0` wallets remain vulnerable until an authorized upgrade.
++Each owner must call `upgrade` with the fixed hash.
++The upgrade keeps the existing wallet address and signer storage.
++
++The testnet relayer rejects every superseded hash.
++This stops sponsored use of every superseded-wallet administration function.
++Users must submit an old-wallet upgrade through another fee source.
++
++Required policies must be installed wallet signers after the upgrade.
++An unstored required policy now revokes the dependent signer.
++This behavior is an intentional fail-closed compatibility change.
++
++## Superseded smart-wallet hash
++
++Do not use these hashes for new deployments:
++
++```text
++fdefad64b96837147e1c333e51f537b696eab925e9f147e63d597c04e3c903f0  vulnerable build
++b2e858176fab112cc9afbe54590e13d12192ba7fa32dd83cf565d21f2f13179a  pre-release build with truncated SignerLimits metadata
++```
++
++The previous manifest remains available for historical verification.
+diff --git a/docs/releasing.md b/docs/releasing.md
+index 8154494..6245b66 100644
+--- a/docs/releasing.md
++++ b/docs/releasing.md
+@@ -12,9 +12,9 @@ The versions checked into each `package.json` are authoritative; `npm view` is t
+ 
+ | Package | Checked-in version |
+ |---|---|
+-| `passkey-kit-sdk` | `0.8.0` |
++| `passkey-kit-sdk` | `0.8.1` |
+ | `sac-sdk` | `0.4.4` |
+-| `passkey-kit` | `0.16.2` (browser signer-discovery fix — see [CHANGELOG](../CHANGELOG.md)) |
++| `passkey-kit` | `0.16.3` (policy-removal authorization fix — see [CHANGELOG](../CHANGELOG.md)) |
+ 
+ > [!IMPORTANT]
+ > Publishing is an **outward-facing, user-gated** step. Bump the versions intentionally, and have the person with npm access run the publish commands (they hold the credentials and the OTP device).
+@@ -51,7 +51,7 @@ Then prove the committed bindings match the canonical on-chain WASM:
+ pnpm run verify:bindings
+ ```
+ 
+-`verify:bindings` (`scripts/bindings/verify.sh`) fetches the smart-wallet WASM by the pinned canonical hash recorded in [`deployments-testnet-2026-07-11.md`](./deployments-testnet-2026-07-11.md), regenerates to a temp dir, and diffs the ContractSpec base64 (the wasm-determined semantic content, ignoring CLI formatting). It exits nonzero on drift.
++`verify:bindings` (`scripts/bindings/verify.sh`) fetches the smart-wallet WASM by the pinned canonical hash recorded in [`deployments-2026-08-19.md`](./deployments-2026-08-19.md), regenerates to a temp dir, and diffs the ContractSpec base64 (the wasm-determined semantic content, ignoring CLI formatting). It exits nonzero on drift.
+ 
+ > [!WARNING]
+ > **Never hand-edit the generated bindings** to resolve drift. Fix it on the contract side, rebuild, re-pin the canonical hash in the deployments manifest, and regenerate. Hand-edits re-introduce drift that `verify:bindings` will flag.
+@@ -112,7 +112,7 @@ Use a **fresh** OTP for each publish (codes expire in ~30s). npm package version
+ 
+ Publishing the npm packages does **not** deploy contracts, the indexer, or the workers. Those are separate, gated steps:
+ 
+-- **Contract WASM** (smart-wallet upload, sample-policy deploy) and the canonical hashes: [`deployments-testnet-2026-07-11.md`](./deployments-testnet-2026-07-11.md). Every user wallet deploys its own instance via the SDK; the smart-wallet WASM is uploaded, never run as a singleton.
+-- **Mercury passkey-indexer** — hosted and **keyless**; nothing to deploy. The SDK's `MercuryIndexer` queries `https://{testnet,mainnet}.mercurydata.app/rest/passkey-indexer` (both networks, full history). Mercury ingests the canonical v1 WASM hash from the [deployments manifest](./deployments-testnet-2026-07-11.md).
++- **Contract WASM** and its canonical hash: [`deployments-2026-08-19.md`](./deployments-2026-08-19.md). Every user wallet deploys its own instance. The smart-wallet WASM is not a singleton.
++- **Mercury passkey-indexer** — hosted and **keyless**; nothing to deploy. The SDK queries `https://{testnet,mainnet}.mercurydata.app/rest/passkey-indexer`. Mercury indexed the new testnet smoke wallet.
+ - **Relayer-proxy worker** (Cloudflare): [`relayer-proxy/README.md`](../relayer-proxy/README.md) (`pnpm deploy` / `pnpm deploy:production`).
+ - **Demo** (Cloudflare Pages): root `wrangler.toml`, `pnpm run deploy:demo` / `deploy:demo:prod`.
+diff --git a/package.json b/package.json
+index 5dfa98b..f28fda0 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "passkey-kit",
+-  "version": "0.16.2",
++  "version": "0.16.3",
+   "description": "A helper library for creating and using smart wallet accounts on the Stellar blockchain.",
+   "author": "Tyler van der Hoeven <tyler@stellar.org>",
+   "license": "MIT",
+@@ -40,7 +40,7 @@
+     "clean": "rm -rf dist packages/passkey-kit-sdk/dist packages/sac-sdk/dist",
+     "build:demo": "cd demo && pnpm --ignore-workspace install && pnpm run build",
+     "deploy:demo": "npx wrangler pages deploy",
+-    "deploy:demo:prod": "npx wrangler pages deploy --branch production",
++    "deploy:demo:prod": "npx wrangler pages deploy --branch main",
+     "prepublishOnly": "pnpm run verify:bindings && pnpm run build"
+   },
+   "dependencies": {
+diff --git a/packages/passkey-kit-sdk/package.json b/packages/passkey-kit-sdk/package.json
+index 5f4b60f..2239575 100644
+--- a/packages/passkey-kit-sdk/package.json
++++ b/packages/passkey-kit-sdk/package.json
+@@ -1,5 +1,5 @@
+ {
+-  "version": "0.8.0",
++  "version": "0.8.1",
+   "name": "passkey-kit-sdk",
+   "type": "module",
+   "main": "dist/index.js",
+diff --git a/packages/passkey-kit-sdk/src/index.ts b/packages/passkey-kit-sdk/src/index.ts
+index bd52246..e90f801 100644
+--- a/packages/passkey-kit-sdk/src/index.ts
++++ b/packages/passkey-kit-sdk/src/index.ts
+@@ -128,7 +128,7 @@ export const Errors = {
+   /**
+    * The authenticator did not set the User Present (UP) flag.
+    * 
+-   * UP-only is the deliberate default (audit FIX-7). Requiring UP keeps
++   * UP-only is the deliberate default. Requiring UP keeps
+    * silent, non-interactive assertions out while staying compatible with
+    * authenticators that cannot do User Verification (UV — biometric/PIN).
+    * UV is therefore NOT required by this contract. A deployment that wants
+@@ -179,28 +179,24 @@ export type SignerVal = {tag: "Policy", values: readonly [SignerExpiration, Sign
+ export type Signatures = readonly [Map<SignerKey, Signature>];
+ 
+ /**
+- * Restrictions on which auth contexts a signer may authorize.
++ * Authorization limits for a signer.
+  * 
+- * - `None`: unlimited. The signer can authorize anything, including
+- * `CreateContract*` (deploy) contexts and this wallet's own admin
+- * functions.
+- * - `Some(empty map)`: NO permissions (fail-closed). The signer can authorize
+- * nothing except removing itself (see below). v1 breaking change: pre-1.0
+- * an empty map meant unlimited, leaving two unlimited encodings and no
+- * "none" encoding.
+- * - `Some({address -> None})`: the signer may authorize any invocation of
+- * contract `address`, with no co-signers required.
+- * - `Some({address -> Some([keys])})`: the signer may authorize invocations
+- * of contract `address` only if every listed key also APPROVES. The listed
+- * keys are required CO-SIGNERS.
++ * - `None`: unlimited.
++ * - `Some(empty map)`: no independent authority.
++ * - `Some({address -> None})`: any invocation of `address`.
++ * - `Some({address -> Some([keys])})`: any invocation of `address` only when
++ * every listed key also approves.
+  * 
+- * ## Required co-signers are scope-independent approvers (audit FIX-5)
++ * A required key approves independently of its own limits. A required
++ * non-policy key must appear in the signatures map and pass full verification.
++ * A required policy need not appear there, but it must remain stored and
++ * unexpired. It must also approve through `policy__`. Removing it revokes all
++ * dependent signers.
+  * 
+- * A required co-signer's OWN `SignerLimits` do NOT constrain its co-signer
+- * role — a key's limits govern only its INDEPENDENT authority (whether it can
+- * cover a context on its own). This is symmetric across key kinds:
+- * 
+- * - 
++ * Limited signers cannot authorize `CreateContract*`. A limited cryptographic
++ * signer can remove itself without satisfying its limits. A policy signature
++ * always calls `policy__`, including during self-removal. A limit for the
++ * wallet address grants access to the wallet administration functions.
+  */
+ export type SignerLimits = readonly [Option<Map<string, Option<Array<SignerKey>>>>];
+ 
+@@ -290,13 +286,13 @@ export class Client extends ContractClient {
+         "AAAAAAAAAAAAAAANX19jb25zdHJ1Y3RvcgAAAAAAAAEAAAAAAAAABnNpZ25lcgAAAAAH0AAAAAZTaWduZXIAAAAAAAA=",
+         "AAAAAAAAAAAAAAANcmVtb3ZlX3NpZ25lcgAAAAAAAAEAAAAAAAAACnNpZ25lcl9rZXkAAAAAB9AAAAAJU2lnbmVyS2V5AAAAAAAAAQAAA+kAAAACAAAAAw==",
+         "AAAAAAAAAAAAAAANdXBkYXRlX3NpZ25lcgAAAAAAAAEAAAAAAAAABnNpZ25lcgAAAAAH0AAAAAZTaWduZXIAAAAAAAEAAAPpAAAAAgAAAAM=",
+-        "AAAABAAAAVBDb250cmFjdCBlcnJvcnMuCgpEZWxpYmVyYXRlbHkgcmVudW1iZXJlZCBmb3IgdGhlIHYxIGludGVyZmFjZSBzbyB0aGUgZXJyb3Igc3BhY2UgaXMgZGlzam9pbnQKZnJvbSB0aGUgbGVnYWN5IChwcmUtMS4wKSBjb250cmFjdCdzIDEtOSByYW5nZS4gQSBjbGllbnQgZGVjb2RpbmcgYW4gZXJyb3IKY29kZSA8IDEwMCBpcyB0YWxraW5nIHRvIGEgbGVnYWN5IHdhbGxldC4KClJhbmdlczoKLSAxMDAtMTA5OiBzaWduZXIgc3RvcmFnZSAvIG1hbmFnZW1lbnQKLSAxMTAtMTE5OiBhdXRoIChgX19jaGVja19hdXRoYCkKLSAxMjAtMTI5OiBXZWJBdXRobiAoc2VjcDI1NnIxKSB2ZXJpZmljYXRpb24AAAAAAAAABUVycm9yAAAAAAAADgAAADlUaGUgcmVxdWVzdGVkIHNpZ25lciBkb2VzIG5vdCBleGlzdCBvbiB0aGlzIHNtYXJ0IHdhbGxldC4AAAAAAAAOU2lnbmVyTm90Rm91bmQAAAAAAGQAAAA+YGFkZF9zaWduZXJgIHdhcyBjYWxsZWQgd2l0aCBhIHNpZ25lciBrZXkgdGhhdCBhbHJlYWR5IGV4aXN0cy4AAAAAABNTaWduZXJBbHJlYWR5RXhpc3RzAAAAAGUAAAAxVGhlIHNpZ25lcidzIGV4cGlyYXRpb24gdGltZXN0YW1wIGlzIGluIHRoZSBwYXN0LgAAAAAAAA1TaWduZXJFeHBpcmVkAAAAAAAAZgAAA9FUaGUgb3BlcmF0aW9uIHdvdWxkIHJlbW92ZSDigJQgb3IgZGVtb3RlIHZpYSBgdXBkYXRlX3NpZ25lcmAg4oCUIHRoZQp3YWxsZXQncyBMQVNUIGR1cmFibGUgYWRtaW4gc2lnbmVyOiBhIHNpZ25lciBzdG9yZWQgYFBlcnNpc3RlbnRgLApub24tZXhwaXJpbmcgKGBTaWduZXJFeHBpcmF0aW9uKE5vbmUpYCksIGFuZCBpbmRlcGVuZGVudGx5CmFkbWluLWNhcGFibGUg4oCUIGVpdGhlciB1bmxpbWl0ZWQgKGBTaWduZXJMaW1pdHMoTm9uZSlgKSBvciBob2xkaW5nIGEKbGltaXRzIGVudHJ5IGZvciB0aGUgd2FsbGV0J3Mgb3duIGFkZHJlc3Mgd2l0aCBubyByZXF1aXJlZCBjby1zaWduZXJzCihgTm9uZWAgb3IgYW4gZW1wdHkgbGlzdCkuIFdpdGggemVybyBzdWNoIHNpZ25lcnMgbm8gYGFkZF9zaWduZXJgIG9yCmB1cGdyYWRlYCBjb3VsZCBldmVyIGJlIGF1dGhvcml6ZWQgYWdhaW4sIHBlcm1hbmVudGx5IGxvY2tpbmcgdGhlCndhbGxldCBvbiBhbiBpbW11dGFibGUgbmV0d29yaywgc28gdGhlIHRyYW5zaXRpb24gaXMgcmVqZWN0ZWQuClRvIHJldGlyZSB0aGUgbGFzdCBhZG1pbiBzaWduZXIsIGFkZCAob3IgcHJvbW90ZSkgYSByZXBsYWNlbWVudApkdXJhYmxlIGFkbWluIHNpZ25lciBmaXJzdC4KCkZvb3RndW4gdGhpcyBndWFyZCBDQU5OT1QgY2F0Y2ggKHN0YXRpY2FsbHkgdW5kZWNpZGFibGUpOiBhIFBPTElDWQpzaWduZXIgd2l0aCBhbiBhZG1pbi1zaGFwZWQgZ3JhbnQgY291bnRzIGFzIGFuIGFkbWluIGV2ZW4gaWYgaXRzCmBwb2xpY3lfX2AgcmVqZWN0cyBldmVyeSByZXF1ZXN0LiBJZiBzdWNoIGEgcG9saWN5IGlzIHlvdXIgb25seQpyZW1haW5pbmcgYWRtaW4sIHRoZSB3YWxsZXQncyBhZG1pbiBzdXJmYWNlIGlzIHVucmVjb3ZlcmFibGUgZXZlbgp0aG91Z2ggdGhlIHNpZ25lciBzdGlsbCBleGlzdHMuIEtlZXAgYSBub24tcG9saWN5IGFkbWluIChvciBhIHNlY29uZAphZG1pbikgYXQgYWxsIHRpbWVzLgAAAAAAAA9MYXN0QWRtaW5TaWduZXIAAAAAZwAAAuRUaGUgb3BlcmF0aW9uIHdvdWxkIGxlYXZlIHRoZSB3YWxsZXQgd2l0aG91dCBhbnkgRFVSQUJMRSBzaWduZXIg4oCUIG9uZQpzdG9yZWQgYFBlcnNpc3RlbnRgIHdpdGggYFNpZ25lckV4cGlyYXRpb24oTm9uZSlgLCBhbnkgbGltaXRzLiBGaXJlZApieSBgcmVtb3ZlX3NpZ25lcmAgKHJlbW92aW5nIHRoZSBsYXN0IGR1cmFibGUgc2lnbmVyKSwgYHVwZGF0ZV9zaWduZXJgCihkZW1vdGluZyBpdCB0byBgVGVtcG9yYXJ5YCBzdG9yYWdlIG9yIHRvIGFuIGV4cGlyaW5nIHZhbHVlKSwgYW5kCmBfX2NvbnN0cnVjdG9yYCAoYSB3YWxsZXQgd2hvc2UgZmlyc3Qgc2lnbmVyIGlzIG5vbi1kdXJhYmxlIGlzIGJvcm4KYnJpY2thYmxlKS4gTm9uLWR1cmFibGUgc2lnbmVycyBjYW4gZXZpY3Qgb3IgZXhwaXJlIHdpdGggTk8gY29udHJhY3QKY2FsbCwgc28gb25seSBhIGR1cmFibGUgc2lnbmVyIGd1YXJhbnRlZXMgdGhlIHdhbGxldCBhbHdheXMga2VlcHMgYXQKbGVhc3Qgb25lIGxpdmUgc2lnbmVyOyB3aXRoIHplcm8gbGl2ZSBzaWduZXJzIG5vdGhpbmcg4oCUIG5vdCBldmVuCmBhZGRfc2lnbmVyYCDigJQgY2FuIGV2ZXIgYmUgYXV0aG9yaXplZCBhZ2Fpbi4gVGhpcyBpcyB0aGUKY2xhc3NpZmljYXRpb24taW5kZXBlbmRlbnQgYmFja3N0b3AgYmVuZWF0aCBgTGFzdEFkbWluU2lnbmVyYC4gVG8KcmV0aXJlIHRoZSBsYXN0IGR1cmFibGUgc2lnbmVyLCBhZGQgYSBkdXJhYmxlIHJlcGxhY2VtZW50IGZpcnN0LgAAAApMYXN0U2lnbmVyAAAAAABoAAAAXU5vIHNpZ25lciBpbiB0aGUgc2lnbmF0dXJlcyBtYXAgaXMgcGVybWl0dGVkIHRvIGF1dGhvcml6ZSBvbmUgb2YgdGhlCnJlcXVlc3RlZCBhdXRoIGNvbnRleHRzLgAAAAAAAA5NaXNzaW5nQ29udGV4dAAAAAAAbgAAAIlBIHNpZ25hdHVyZSdzIHZhcmlhbnQgZG9lcyBub3QgbWF0Y2ggdGhlIHN0b3JlZCBzaWduZXIgaXQgY2xhaW1zIHRvIGJlCmZvciAoZS5nLiBhbiBFZDI1NTE5IHNpZ25hdHVyZSBzdWJtaXR0ZWQgZm9yIGEgUG9saWN5IHNpZ25lciBrZXkpLgAAAAAAABlTaWduYXR1cmVLZXlWYWx1ZU1pc21hdGNoAAAAAAAAbwAAADJjbGllbnREYXRhSlNPTiBleGNlZWRzIHRoZSAxMDI0IGJ5dGUgcGFyc2UgYnVmZmVyLgAAAAAAFkNsaWVudERhdGFKc29uVG9vTGFyZ2UAAAAAAHgAAABFY2xpZW50RGF0YUpTT04gaXMgbm90IHBhcnNlYWJsZSBKU09OIChvciBpcyBtaXNzaW5nIHJlcXVpcmVkIGZpZWxkcykuAAAAAAAAGENsaWVudERhdGFKc29uUGFyc2VFcnJvcgAAAHkAAAC2VGhlIGNoYWxsZW5nZSBpbiBjbGllbnREYXRhSlNPTiBkb2VzIG5vdCBtYXRjaCB0aGUgYmFzZTY0dXJsLWVuY29kZWQKc2lnbmF0dXJlIHBheWxvYWQuIFRoaXMgYmluZHMgdGhlIFdlYkF1dGhuIGFzc2VydGlvbiB0byB0aGUgU29yb2JhbgphdXRob3JpemF0aW9uIGVudHJ5IGFuZCBNVVNUIE5PVCBiZSB3ZWFrZW5lZC4AAAAAACBDbGllbnREYXRhSnNvbkNoYWxsZW5nZUluY29ycmVjdAAAAHoAAAAsY2xpZW50RGF0YUpTT04gYHR5cGVgIGlzIG5vdCAid2ViYXV0aG4uZ2V0Ii4AAAATSW52YWxpZFdlYkF1dGhuVHlwZQAAAAB7AAAAaWF1dGhlbnRpY2F0b3JEYXRhIGlzIHNob3J0ZXIgdGhhbiB0aGUgV2ViQXV0aG4gbWluaW11bSBvZiAzNyBieXRlcwoocnBJZEhhc2ggMzIgKyBmbGFncyAxICsgc2lnbkNvdW50IDQpLgAAAAAAABhJbnZhbGlkQXV0aGVudGljYXRvckRhdGEAAAB8AAACWlRoZSBhdXRoZW50aWNhdG9yIGRpZCBub3Qgc2V0IHRoZSBVc2VyIFByZXNlbnQgKFVQKSBmbGFnLgoKVVAtb25seSBpcyB0aGUgZGVsaWJlcmF0ZSBkZWZhdWx0IChhdWRpdCBGSVgtNykuIFJlcXVpcmluZyBVUCBrZWVwcwpzaWxlbnQsIG5vbi1pbnRlcmFjdGl2ZSBhc3NlcnRpb25zIG91dCB3aGlsZSBzdGF5aW5nIGNvbXBhdGlibGUgd2l0aAphdXRoZW50aWNhdG9ycyB0aGF0IGNhbm5vdCBkbyBVc2VyIFZlcmlmaWNhdGlvbiAoVVYg4oCUIGJpb21ldHJpYy9QSU4pLgpVViBpcyB0aGVyZWZvcmUgTk9UIHJlcXVpcmVkIGJ5IHRoaXMgY29udHJhY3QuIEEgZGVwbG95bWVudCB0aGF0IHdhbnRzClVWLXJlcXVpcmVkIGFzc2VydGlvbnMgc2hvdWxkIGVuZm9yY2UgaXQgYXQgdGhlIGNsaWVudC9yZWxheWVyIGxheWVyLApvciB2aWEgYSBmdXR1cmUgcGVyLXNpZ25lciBmbGFnICh3aGljaCB3b3VsZCBiZSBhIHNpZ25lci1tb2RlbCBjaGFuZ2UsCm5vdCBhIGNoYW5nZSB0byB0aGlzIGNoZWNrKTsgdGhlIGNvbnRyYWN0IGNhbm5vdCB1cGdyYWRlIFVQLW9ubHkKc2lnbmVycyB0byBVVi1yZXF1aXJlZCByZXRyb2FjdGl2ZWx5IHdpdGhvdXQgc3VjaCBhIGZsYWcuAAAAAAAUVXNlclByZXNlbmNlUmVxdWlyZWQAAAB9AAAA4mF1dGhlbnRpY2F0b3JEYXRhIGV4Y2VlZHMgdGhlIDEwMjQgYnl0ZSBjYXAgKHN5bW1ldHJpYyB3aXRoCmBDbGllbnREYXRhSnNvblRvb0xhcmdlYCkuIFJlYWwgYXNzZXJ0aW9ucyBhcmUgfjM3IGJ5dGVzOyB0aGUgY2FwCnJlamVjdHMgb3ZlcnNpemVkIGlucHV0IEJFRk9SRSBpdCBpcyBoYXNoZWQsIHNpbmNlIHRoaXMgcGF0aCBpcwpyZWFjaGFibGUgd2l0aG91dCBhIHZhbGlkIHNpZ25hdHVyZS4AAAAAABlBdXRoZW50aWNhdG9yRGF0YVRvb0xhcmdlAAAAAAAAfg==",
++        "AAAABAAAAVBDb250cmFjdCBlcnJvcnMuCgpEZWxpYmVyYXRlbHkgcmVudW1iZXJlZCBmb3IgdGhlIHYxIGludGVyZmFjZSBzbyB0aGUgZXJyb3Igc3BhY2UgaXMgZGlzam9pbnQKZnJvbSB0aGUgbGVnYWN5IChwcmUtMS4wKSBjb250cmFjdCdzIDEtOSByYW5nZS4gQSBjbGllbnQgZGVjb2RpbmcgYW4gZXJyb3IKY29kZSA8IDEwMCBpcyB0YWxraW5nIHRvIGEgbGVnYWN5IHdhbGxldC4KClJhbmdlczoKLSAxMDAtMTA5OiBzaWduZXIgc3RvcmFnZSAvIG1hbmFnZW1lbnQKLSAxMTAtMTE5OiBhdXRoIChgX19jaGVja19hdXRoYCkKLSAxMjAtMTI5OiBXZWJBdXRobiAoc2VjcDI1NnIxKSB2ZXJpZmljYXRpb24AAAAAAAAABUVycm9yAAAAAAAADgAAADlUaGUgcmVxdWVzdGVkIHNpZ25lciBkb2VzIG5vdCBleGlzdCBvbiB0aGlzIHNtYXJ0IHdhbGxldC4AAAAAAAAOU2lnbmVyTm90Rm91bmQAAAAAAGQAAAA+YGFkZF9zaWduZXJgIHdhcyBjYWxsZWQgd2l0aCBhIHNpZ25lciBrZXkgdGhhdCBhbHJlYWR5IGV4aXN0cy4AAAAAABNTaWduZXJBbHJlYWR5RXhpc3RzAAAAAGUAAAAxVGhlIHNpZ25lcidzIGV4cGlyYXRpb24gdGltZXN0YW1wIGlzIGluIHRoZSBwYXN0LgAAAAAAAA1TaWduZXJFeHBpcmVkAAAAAAAAZgAAA85UaGUgb3BlcmF0aW9uIHdvdWxkIHJlbW92ZSDigJQgb3IgZGVtb3RlIHZpYSBgdXBkYXRlX3NpZ25lcmAg4oCUIHRoZQp3YWxsZXQncyBMQVNUIGR1cmFibGUgYWRtaW4gc2lnbmVyOiBhIHNpZ25lciBzdG9yZWQgYFBlcnNpc3RlbnRgLApub24tZXhwaXJpbmcgKGBTaWduZXJFeHBpcmF0aW9uKE5vbmUpYCksIGFuZCBpbmRlcGVuZGVudGx5CmFkbWluLWNhcGFibGUg4oCUIGVpdGhlciB1bmxpbWl0ZWQgKGBTaWduZXJMaW1pdHMoTm9uZSlgKSBvciBob2xkaW5nIGEKbGltaXRzIGVudHJ5IGZvciB0aGUgd2FsbGV0J3Mgb3duIGFkZHJlc3Mgd2l0aCBubyByZXF1aXJlZCBjby1zaWduZXJzCihgTm9uZWAgb3IgYW4gZW1wdHkgbGlzdCkuIFdpdGggemVybyBzdWNoIHNpZ25lcnMgbm8gYGFkZF9zaWduZXJgIG9yCmB1cGdyYWRlYCBjb3VsZCBldmVyIGJlIGF1dGhvcml6ZWQgYWdhaW4sIHBlcm1hbmVudGx5IGxvY2tpbmcgdGhlCndhbGxldCBvbiBhbiBpbW11dGFibGUgbmV0d29yaywgc28gdGhlIHRyYW5zaXRpb24gaXMgcmVqZWN0ZWQuClRvIHJldGlyZSB0aGUgbGFzdCBhZG1pbiBzaWduZXIsIGFkZCAob3IgcHJvbW90ZSkgYSByZXBsYWNlbWVudApkdXJhYmxlIGFkbWluIHNpZ25lciBmaXJzdC4KCkNhc2UgdGhpcyBndWFyZCBDQU5OT1QgY2F0Y2ggKHN0YXRpY2FsbHkgdW5kZWNpZGFibGUpOiBhIFBPTElDWQpzaWduZXIgd2l0aCBhbiBhZG1pbi1zaGFwZWQgZ3JhbnQgY291bnRzIGFzIGFuIGFkbWluIGV2ZW4gaWYgaXRzCmBwb2xpY3lfX2AgcmVqZWN0cyBldmVyeSByZXF1ZXN0LiBJZiBzdWNoIGEgcG9saWN5IGlzIHlvdXIgb25seQpyZW1haW5pbmcgYWRtaW4sIHRoZSB3YWxsZXQncyBhZG1pbiBzdXJmYWNlIGlzIHVucmVjb3ZlcmFibGUgZXZlbgp0aG91Z2ggdGhlIHNpZ25lciBzdGlsbCBleGlzdHMuIEtlZXAgYSBub24tcG9saWN5IGFkbWluIChvciBhIHNlY29uZAphZG1pbikgYXQgYWxsIHRpbWVzLgAAAAAAD0xhc3RBZG1pblNpZ25lcgAAAABnAAAC0VRoZSBvcGVyYXRpb24gd291bGQgbGVhdmUgdGhlIHdhbGxldCB3aXRob3V0IGFueSBEVVJBQkxFIHNpZ25lciDigJQgb25lCnN0b3JlZCBgUGVyc2lzdGVudGAgd2l0aCBgU2lnbmVyRXhwaXJhdGlvbihOb25lKWAsIGFueSBsaW1pdHMuIEZpcmVkCmJ5IGByZW1vdmVfc2lnbmVyYCAocmVtb3ZpbmcgdGhlIGxhc3QgZHVyYWJsZSBzaWduZXIpLCBgdXBkYXRlX3NpZ25lcmAKKGRlbW90aW5nIGl0IHRvIGBUZW1wb3JhcnlgIHN0b3JhZ2Ugb3IgdG8gYW4gZXhwaXJpbmcgdmFsdWUpLCBhbmQKYF9fY29uc3RydWN0b3JgICh0aGUgd2FsbGV0J3MgZmlyc3Qgc2lnbmVyIG11c3QgYmUgZHVyYWJsZSkuCk5vbi1kdXJhYmxlIHNpZ25lcnMgY2FuIGV2aWN0IG9yIGV4cGlyZSB3aXRoIE5PIGNvbnRyYWN0CmNhbGwsIHNvIG9ubHkgYSBkdXJhYmxlIHNpZ25lciBndWFyYW50ZWVzIHRoZSB3YWxsZXQgYWx3YXlzIGtlZXBzIGF0CmxlYXN0IG9uZSBsaXZlIHNpZ25lcjsgd2l0aCB6ZXJvIGxpdmUgc2lnbmVycyBub3RoaW5nIOKAlCBub3QgZXZlbgpgYWRkX3NpZ25lcmAg4oCUIGNhbiBldmVyIGJlIGF1dGhvcml6ZWQgYWdhaW4uIFRoaXMgaXMgdGhlCmNsYXNzaWZpY2F0aW9uLWluZGVwZW5kZW50IGJhY2tzdG9wIGJlbmVhdGggYExhc3RBZG1pblNpZ25lcmAuIFRvCnJldGlyZSB0aGUgbGFzdCBkdXJhYmxlIHNpZ25lciwgYWRkIGEgZHVyYWJsZSByZXBsYWNlbWVudCBmaXJzdC4AAAAAAAAKTGFzdFNpZ25lcgAAAAAAaAAAAF1ObyBzaWduZXIgaW4gdGhlIHNpZ25hdHVyZXMgbWFwIGlzIHBlcm1pdHRlZCB0byBhdXRob3JpemUgb25lIG9mIHRoZQpyZXF1ZXN0ZWQgYXV0aCBjb250ZXh0cy4AAAAAAAAOTWlzc2luZ0NvbnRleHQAAAAAAG4AAACJQSBzaWduYXR1cmUncyB2YXJpYW50IGRvZXMgbm90IG1hdGNoIHRoZSBzdG9yZWQgc2lnbmVyIGl0IGNsYWltcyB0byBiZQpmb3IgKGUuZy4gYW4gRWQyNTUxOSBzaWduYXR1cmUgc3VibWl0dGVkIGZvciBhIFBvbGljeSBzaWduZXIga2V5KS4AAAAAAAAZU2lnbmF0dXJlS2V5VmFsdWVNaXNtYXRjaAAAAAAAAG8AAAAyY2xpZW50RGF0YUpTT04gZXhjZWVkcyB0aGUgMTAyNCBieXRlIHBhcnNlIGJ1ZmZlci4AAAAAABZDbGllbnREYXRhSnNvblRvb0xhcmdlAAAAAAB4AAAARWNsaWVudERhdGFKU09OIGlzIG5vdCBwYXJzZWFibGUgSlNPTiAob3IgaXMgbWlzc2luZyByZXF1aXJlZCBmaWVsZHMpLgAAAAAAABhDbGllbnREYXRhSnNvblBhcnNlRXJyb3IAAAB5AAAAtlRoZSBjaGFsbGVuZ2UgaW4gY2xpZW50RGF0YUpTT04gZG9lcyBub3QgbWF0Y2ggdGhlIGJhc2U2NHVybC1lbmNvZGVkCnNpZ25hdHVyZSBwYXlsb2FkLiBUaGlzIGJpbmRzIHRoZSBXZWJBdXRobiBhc3NlcnRpb24gdG8gdGhlIFNvcm9iYW4KYXV0aG9yaXphdGlvbiBlbnRyeSBhbmQgTVVTVCBOT1QgYmUgd2Vha2VuZWQuAAAAAAAgQ2xpZW50RGF0YUpzb25DaGFsbGVuZ2VJbmNvcnJlY3QAAAB6AAAALGNsaWVudERhdGFKU09OIGB0eXBlYCBpcyBub3QgIndlYmF1dGhuLmdldCIuAAAAE0ludmFsaWRXZWJBdXRoblR5cGUAAAAAewAAAGlhdXRoZW50aWNhdG9yRGF0YSBpcyBzaG9ydGVyIHRoYW4gdGhlIFdlYkF1dGhuIG1pbmltdW0gb2YgMzcgYnl0ZXMKKHJwSWRIYXNoIDMyICsgZmxhZ3MgMSArIHNpZ25Db3VudCA0KS4AAAAAAAAYSW52YWxpZEF1dGhlbnRpY2F0b3JEYXRhAAAAfAAAAkxUaGUgYXV0aGVudGljYXRvciBkaWQgbm90IHNldCB0aGUgVXNlciBQcmVzZW50IChVUCkgZmxhZy4KClVQLW9ubHkgaXMgdGhlIGRlbGliZXJhdGUgZGVmYXVsdC4gUmVxdWlyaW5nIFVQIGtlZXBzCnNpbGVudCwgbm9uLWludGVyYWN0aXZlIGFzc2VydGlvbnMgb3V0IHdoaWxlIHN0YXlpbmcgY29tcGF0aWJsZSB3aXRoCmF1dGhlbnRpY2F0b3JzIHRoYXQgY2Fubm90IGRvIFVzZXIgVmVyaWZpY2F0aW9uIChVViDigJQgYmlvbWV0cmljL1BJTikuClVWIGlzIHRoZXJlZm9yZSBOT1QgcmVxdWlyZWQgYnkgdGhpcyBjb250cmFjdC4gQSBkZXBsb3ltZW50IHRoYXQgd2FudHMKVVYtcmVxdWlyZWQgYXNzZXJ0aW9ucyBzaG91bGQgZW5mb3JjZSBpdCBhdCB0aGUgY2xpZW50L3JlbGF5ZXIgbGF5ZXIsCm9yIHZpYSBhIGZ1dHVyZSBwZXItc2lnbmVyIGZsYWcgKHdoaWNoIHdvdWxkIGJlIGEgc2lnbmVyLW1vZGVsIGNoYW5nZSwKbm90IGEgY2hhbmdlIHRvIHRoaXMgY2hlY2spOyB0aGUgY29udHJhY3QgY2Fubm90IHVwZ3JhZGUgVVAtb25seQpzaWduZXJzIHRvIFVWLXJlcXVpcmVkIHJldHJvYWN0aXZlbHkgd2l0aG91dCBzdWNoIGEgZmxhZy4AAAAUVXNlclByZXNlbmNlUmVxdWlyZWQAAAB9AAAA4mF1dGhlbnRpY2F0b3JEYXRhIGV4Y2VlZHMgdGhlIDEwMjQgYnl0ZSBjYXAgKHN5bW1ldHJpYyB3aXRoCmBDbGllbnREYXRhSnNvblRvb0xhcmdlYCkuIFJlYWwgYXNzZXJ0aW9ucyBhcmUgfjM3IGJ5dGVzOyB0aGUgY2FwCnJlamVjdHMgb3ZlcnNpemVkIGlucHV0IEJFRk9SRSBpdCBpcyBoYXNoZWQsIHNpbmNlIHRoaXMgcGF0aCBpcwpyZWFjaGFibGUgd2l0aG91dCBhIHZhbGlkIHNpZ25hdHVyZS4AAAAAABlBdXRoZW50aWNhdG9yRGF0YVRvb0xhcmdlAAAAAAAAfg==",
+         "AAAAAgAAAFJGdWxsIHNpZ25lciBkZXNjcmlwdGlvbiB1c2VkIGJ5IGBfX2NvbnN0cnVjdG9yYCwgYGFkZF9zaWduZXJgIGFuZApgdXBkYXRlX3NpZ25lcmAuAAAAAAAAAAAABlNpZ25lcgAAAAAAAwAAAAEAAAAAAAAABlBvbGljeQAAAAAABAAAABMAAAfQAAAAEFNpZ25lckV4cGlyYXRpb24AAAfQAAAADFNpZ25lckxpbWl0cwAAB9AAAAANU2lnbmVyU3RvcmFnZQAAAAAAAAEAAAAAAAAAB0VkMjU1MTkAAAAABAAAA+4AAAAgAAAH0AAAABBTaWduZXJFeHBpcmF0aW9uAAAH0AAAAAxTaWduZXJMaW1pdHMAAAfQAAAADVNpZ25lclN0b3JhZ2UAAAAAAAABAAAAAAAAAAlTZWNwMjU2cjEAAAAAAAAFAAAADgAAA+4AAABBAAAH0AAAABBTaWduZXJFeHBpcmF0aW9uAAAH0AAAAAxTaWduZXJMaW1pdHMAAAfQAAAADVNpZ25lclN0b3JhZ2UAAAA=",
+         "AAAAAgAAAJ1BIHNpZ25hdHVyZSBlbnRyeSBpbiB0aGUgc2lnbmF0dXJlcyBtYXAuIGBQb2xpY3lgIGNhcnJpZXMgbm8gc2lnbmF0dXJlCm1hdGVyaWFsOiBpbmNsdXNpb24gb2YgdGhlIHBvbGljeSBrZXkgYXV0aG9yaXplcyBhbiBvbi1jaGFpbiBgcG9saWN5X19gCmNoZWNrIGluc3RlYWQuAAAAAAAAAAAAAAlTaWduYXR1cmUAAAAAAAADAAAAAAAAAAAAAAAGUG9saWN5AAAAAAABAAAAAAAAAAdFZDI1NTE5AAAAAAEAAAPuAAAAQAAAAAEAAAAAAAAACVNlY3AyNTZyMQAAAAAAAAEAAAfQAAAAElNlY3AyNTZyMVNpZ25hdHVyZQAA",
+         "AAAAAgAAAFlTdG9yYWdlIGtleSBpZGVudGlmeWluZyBhIHNpZ25lci4gU2VjcDI1NnIxIGNhcnJpZXMgdGhlIFdlYkF1dGhuCmNyZWRlbnRpYWwgaWQgKGBrZXlJZGApLgAAAAAAAAAAAAAJU2lnbmVyS2V5AAAAAAAAAwAAAAEAAAAAAAAABlBvbGljeQAAAAAAAQAAABMAAAABAAAAAAAAAAdFZDI1NTE5AAAAAAEAAAPuAAAAIAAAAAEAAAAAAAAACVNlY3AyNTZyMQAAAAAAAAEAAAAO",
+         "AAAAAgAAAElTdG9yZWQgc2lnbmVyIHZhbHVlLiBTZWNwMjU2cjEgY2FycmllcyB0aGUgU0VDLTEgdW5jb21wcmVzc2VkIHB1YmxpYyBrZXkuAAAAAAAAAAAAAAlTaWduZXJWYWwAAAAAAAADAAAAAQAAAAAAAAAGUG9saWN5AAAAAAACAAAH0AAAABBTaWduZXJFeHBpcmF0aW9uAAAH0AAAAAxTaWduZXJMaW1pdHMAAAABAAAAAAAAAAdFZDI1NTE5AAAAAAIAAAfQAAAAEFNpZ25lckV4cGlyYXRpb24AAAfQAAAADFNpZ25lckxpbWl0cwAAAAEAAAAAAAAACVNlY3AyNTZyMQAAAAAAAAMAAAPuAAAAQQAAB9AAAAAQU2lnbmVyRXhwaXJhdGlvbgAAB9AAAAAMU2lnbmVyTGltaXRz",
+         "AAAAAQAAANNUaGUgYF9fY2hlY2tfYXV0aGAgc2lnbmF0dXJlIG9iamVjdDogYSBtYXAgb2Ygc2lnbmVyIGtleXMgdG8gc2lnbmF0dXJlcy4KTWFwIG9yZGVyaW5nIGlzIHRoZSBob3N0J3MgU2NWYWwgb3JkZXJpbmcuIEVWRVJZIGVudHJ5IG11c3QgdmVyaWZ5IChwYXNzCjIgb2YgYF9fY2hlY2tfYXV0aGApIOKAlCBpbmNsdWRlIG9ubHkgc2lnbmF0dXJlcyB0aGF0IGFyZSBuZWVkZWQuAAAAAAAAAAAKU2lnbmF0dXJlcwAAAAAAAQAAAAAAAAABMAAAAAAAA+wAAAfQAAAACVNpZ25lcktleQAAAAAAB9AAAAAJU2lnbmF0dXJlAAAA",
+-        "AAAAAQAABABSZXN0cmljdGlvbnMgb24gd2hpY2ggYXV0aCBjb250ZXh0cyBhIHNpZ25lciBtYXkgYXV0aG9yaXplLgoKLSBgTm9uZWA6IHVubGltaXRlZC4gVGhlIHNpZ25lciBjYW4gYXV0aG9yaXplIGFueXRoaW5nLCBpbmNsdWRpbmcKYENyZWF0ZUNvbnRyYWN0KmAgKGRlcGxveSkgY29udGV4dHMgYW5kIHRoaXMgd2FsbGV0J3Mgb3duIGFkbWluCmZ1bmN0aW9ucy4KLSBgU29tZShlbXB0eSBtYXApYDogTk8gcGVybWlzc2lvbnMgKGZhaWwtY2xvc2VkKS4gVGhlIHNpZ25lciBjYW4gYXV0aG9yaXplCm5vdGhpbmcgZXhjZXB0IHJlbW92aW5nIGl0c2VsZiAoc2VlIGJlbG93KS4gdjEgYnJlYWtpbmcgY2hhbmdlOiBwcmUtMS4wCmFuIGVtcHR5IG1hcCBtZWFudCB1bmxpbWl0ZWQsIGxlYXZpbmcgdHdvIHVubGltaXRlZCBlbmNvZGluZ3MgYW5kIG5vCiJub25lIiBlbmNvZGluZy4KLSBgU29tZSh7YWRkcmVzcyAtPiBOb25lfSlgOiB0aGUgc2lnbmVyIG1heSBhdXRob3JpemUgYW55IGludm9jYXRpb24gb2YKY29udHJhY3QgYGFkZHJlc3NgLCB3aXRoIG5vIGNvLXNpZ25lcnMgcmVxdWlyZWQuCi0gYFNvbWUoe2FkZHJlc3MgLT4gU29tZShba2V5c10pfSlgOiB0aGUgc2lnbmVyIG1heSBhdXRob3JpemUgaW52b2NhdGlvbnMKb2YgY29udHJhY3QgYGFkZHJlc3NgIG9ubHkgaWYgZXZlcnkgbGlzdGVkIGtleSBhbHNvIEFQUFJPVkVTLiBUaGUgbGlzdGVkCmtleXMgYXJlIHJlcXVpcmVkIENPLVNJR05FUlMuCgojIyBSZXF1aXJlZCBjby1zaWduZXJzIGFyZSBzY29wZS1pbmRlcGVuZGVudCBhcHByb3ZlcnMgKGF1ZGl0IEZJWC01KQoKQSByZXF1aXJlZCBjby1zaWduZXIncyBPV04gYFNpZ25lckxpbWl0c2AgZG8gTk9UIGNvbnN0cmFpbiBpdHMgY28tc2lnbmVyCnJvbGUg4oCUIGEga2V5J3MgbGltaXRzIGdvdmVybiBvbmx5IGl0cyBJTkRFUEVOREVOVCBhdXRob3JpdHkgKHdoZXRoZXIgaXQgY2FuCmNvdmVyIGEgY29udGV4dCBvbiBpdHMgb3duKS4gVGhpcyBpcyBzeW1tZXRyaWMgYWNyb3NzIGtleSBraW5kczoKCi0gAAAAAAAAAAxTaWduZXJMaW1pdHMAAAABAAAAAAAAAAEwAAAAAAAD6AAAA+wAAAATAAAD6AAAA+oAAAfQAAAACVNpZ25lcktleQAAAA==",
++        "AAAAAQAAA2lBdXRob3JpemF0aW9uIGxpbWl0cyBmb3IgYSBzaWduZXIuCgotIGBOb25lYDogdW5saW1pdGVkLgotIGBTb21lKGVtcHR5IG1hcClgOiBubyBpbmRlcGVuZGVudCBhdXRob3JpdHkuCi0gYFNvbWUoe2FkZHJlc3MgLT4gTm9uZX0pYDogYW55IGludm9jYXRpb24gb2YgYGFkZHJlc3NgLgotIGBTb21lKHthZGRyZXNzIC0+IFNvbWUoW2tleXNdKX0pYDogYW55IGludm9jYXRpb24gb2YgYGFkZHJlc3NgIG9ubHkgd2hlbgpldmVyeSBsaXN0ZWQga2V5IGFsc28gYXBwcm92ZXMuCgpBIHJlcXVpcmVkIGtleSBhcHByb3ZlcyBpbmRlcGVuZGVudGx5IG9mIGl0cyBvd24gbGltaXRzLiBBIHJlcXVpcmVkCm5vbi1wb2xpY3kga2V5IG11c3QgYXBwZWFyIGluIHRoZSBzaWduYXR1cmVzIG1hcCBhbmQgcGFzcyBmdWxsIHZlcmlmaWNhdGlvbi4KQSByZXF1aXJlZCBwb2xpY3kgbmVlZCBub3QgYXBwZWFyIHRoZXJlLCBidXQgaXQgbXVzdCByZW1haW4gc3RvcmVkIGFuZAp1bmV4cGlyZWQuIEl0IG11c3QgYWxzbyBhcHByb3ZlIHRocm91Z2ggYHBvbGljeV9fYC4gUmVtb3ZpbmcgaXQgcmV2b2tlcyBhbGwKZGVwZW5kZW50IHNpZ25lcnMuCgpMaW1pdGVkIHNpZ25lcnMgY2Fubm90IGF1dGhvcml6ZSBgQ3JlYXRlQ29udHJhY3QqYC4gQSBsaW1pdGVkIGNyeXB0b2dyYXBoaWMKc2lnbmVyIGNhbiByZW1vdmUgaXRzZWxmIHdpdGhvdXQgc2F0aXNmeWluZyBpdHMgbGltaXRzLiBBIHBvbGljeSBzaWduYXR1cmUKYWx3YXlzIGNhbGxzIGBwb2xpY3lfX2AsIGluY2x1ZGluZyBkdXJpbmcgc2VsZi1yZW1vdmFsLiBBIGxpbWl0IGZvciB0aGUKd2FsbGV0IGFkZHJlc3MgZ3JhbnRzIGFjY2VzcyB0byB0aGUgd2FsbGV0IGFkbWluaXN0cmF0aW9uIGZ1bmN0aW9ucy4AAAAAAAAAAAAADFNpZ25lckxpbWl0cwAAAAEAAAAAAAAAATAAAAAAAAPoAAAD7AAAABMAAAPoAAAD6gAAB9AAAAAJU2lnbmVyS2V5AAAA",
+         "AAAAAgAAAIRXaGljaCBkdXJhYmlsaXR5IGEgc2lnbmVyIGVudHJ5IGlzIHN0b3JlZCB1bmRlci4gQXQgbW9zdCBvbmUgZW50cnkgZXhpc3RzCnBlciBzaWduZXIga2V5OyBsb29rdXBzIGNoZWNrIFRlbXBvcmFyeSBiZWZvcmUgUGVyc2lzdGVudC4AAAAAAAAADVNpZ25lclN0b3JhZ2UAAAAAAAACAAAAAAAAAAAAAAAKUGVyc2lzdGVudAAAAAAAAAAAAAAAAAAJVGVtcG9yYXJ5AAAA",
+         "AAAAAQAAAY5PcHRpb25hbCBleHBpcmF0aW9uIGZvciBhIHNpZ25lciBhcyBhIFVOSVggdGltZXN0YW1wIGluIHNlY29uZHMsIElOQ0xVU0lWRToKdGhlIHNpZ25lciBpcyB2YWxpZCB3aGlsZSBgbGVkZ2VyIHRpbWVzdGFtcCA8PSBleHBpcmF0aW9uYCBhbmQgZXhwaXJlZCBvbmNlCmBsZWRnZXIgdGltZXN0YW1wID4gZXhwaXJhdGlvbmAuIGBOb25lYCBuZXZlciBleHBpcmVzLgoKdjEgYnJlYWtpbmcgY2hhbmdlOiB0aGlzIHdhcyBhIGxlZGdlciBzZXF1ZW5jZSBudW1iZXIgcHJlLTEuMC4gVGltZXN0YW1wcwpkb24ndCBkcmlmdCB3aXRoIGNoYW5nZXMgdG8gbGVkZ2VyIGNsb3NlIHRpbWUgKGUuZy4gQ0FQLTAwNzAgZHluYW1pYwp0aW1pbmcpLCB3aGljaCBsZWRnZXItc2VxdWVuY2UgZXhwaXJhdGlvbnMgZGlkLgAAAAAAAAAAABBTaWduZXJFeHBpcmF0aW9uAAAAAQAAAAAAAAABMAAAAAAAA+gAAAAG",
+         "AAAAAQAAAMhBIFdlYkF1dGhuIGFzc2VydGlvbiBvdmVyIHRoZSBTb3JvYmFuIGF1dGhvcml6YXRpb24gcGF5bG9hZC4gVGhlIHNpZ25lZAptZXNzYWdlIGlzIGBhdXRoZW50aWNhdG9yX2RhdGEgfHwgc2hhMjU2KGNsaWVudF9kYXRhX2pzb24pYCBhbmQgdGhlCnBheWxvYWQgYmluZGluZyBsaXZlcyBpbiBjbGllbnREYXRhSlNPTidzIGBjaGFsbGVuZ2VgIGZpZWxkLgAAAAAAAAASU2VjcDI1NnIxU2lnbmF0dXJlAAAAAAADAAAAAAAAABJhdXRoZW50aWNhdG9yX2RhdGEAAAAAAA4AAAAAAAAAEGNsaWVudF9kYXRhX2pzb24AAAAOAAAAAAAAAAlzaWduYXR1cmUAAAAAAAPuAAAAQA==",
+diff --git a/relayer-proxy/.dev.vars.example b/relayer-proxy/.dev.vars.example
+index bd32798..170af03 100644
+--- a/relayer-proxy/.dev.vars.example
++++ b/relayer-proxy/.dev.vars.example
+@@ -9,7 +9,7 @@ RELAYER_BASE_URL="https://channels.openzeppelin.com/testnet"
+ STELLAR_RPC_URL="https://soroban-testnet.stellar.org"
+ ALLOWED_ORIGINS="http://localhost:5173"
+ ALLOWED_WALLET_CONTRACT_IDS=""
+-ALLOWED_WALLET_WASM_HASHES="fdefad64b96837147e1c333e51f537b696eab925e9f147e63d597c04e3c903f0"
++ALLOWED_WALLET_WASM_HASHES="502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58"
+ ALLOWED_WALLET_FUNCTIONS="add_signer,update_signer,remove_signer,upgrade"
+ ALLOWED_DEPLOYER_ADDRESSES="GC2C7AWLS2FMFTQAHW3IBUB4ZXVP4E37XNLEF2IK7IVXBB6CMEPCSXFO"
+ MAX_RESOURCE_FEE_STROOPS="1000000"
+diff --git a/relayer-proxy/README.md b/relayer-proxy/README.md
+index bb2a6a5..01d9ece 100644
+--- a/relayer-proxy/README.md
++++ b/relayer-proxy/README.md
+@@ -22,6 +22,10 @@ All other operations, contracts, functions, auth trees, sources, WASM hashes,
+ and over-ceiling fees are rejected before an API key can be minted. Invalid
+ JSON and missing `CF-Connecting-IP` also fail before key custody is touched.
+ 
++The deployed testnet Worker accepts only the fixed `binver = 1.0.1` hash.
++It rejects the vulnerable `binver = 1.0.0` hash for every function.
++This restriction also prevents the Worker from sponsoring an old-wallet upgrade.
++
+ A fixed-window Durable Object limiter is applied globally and per IP. The
+ global bucket bounds IP rotation. Browser CORS is an exact configured origin
+ list; the Worker never emits `Access-Control-Allow-Origin: *`. Requests without
+diff --git a/relayer-proxy/wrangler.toml b/relayer-proxy/wrangler.toml
+index 0805dc8..820ca1a 100644
+--- a/relayer-proxy/wrangler.toml
++++ b/relayer-proxy/wrangler.toml
+@@ -39,7 +39,7 @@ ALLOWED_ORIGINS = "https://passkey-kit-demo.pages.dev"
+ # Explicit contract IDs are optional; approved instances are otherwise verified
+ # by their on-chain WASM hash through STELLAR_RPC_URL.
+ ALLOWED_WALLET_CONTRACT_IDS = ""
+-ALLOWED_WALLET_WASM_HASHES = "fdefad64b96837147e1c333e51f537b696eab925e9f147e63d597c04e3c903f0"
++ALLOWED_WALLET_WASM_HASHES = "502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58"
+ ALLOWED_WALLET_FUNCTIONS = "add_signer,update_signer,remove_signer,upgrade"
+ ALLOWED_DEPLOYER_ADDRESSES = "GC2C7AWLS2FMFTQAHW3IBUB4ZXVP4E37XNLEF2IK7IVXBB6CMEPCSXFO"
+ MAX_RESOURCE_FEE_STROOPS = "1000000"
+diff --git a/scripts/bindings/build.sh b/scripts/bindings/build.sh
+index 81bee97..03b522a 100755
+--- a/scripts/bindings/build.sh
++++ b/scripts/bindings/build.sh
+@@ -12,8 +12,8 @@
+ set -euo pipefail
+ 
+ # Canonical smart-wallet WASM hash — keep in sync with the deployments manifest
+-# (docs/deployments-testnet-2026-07-11.md). Pinned Stellar CLI: 27.0.0.
+-CANONICAL_HASH="fdefad64b96837147e1c333e51f537b696eab925e9f147e63d597c04e3c903f0"
++# (docs/deployments-2026-08-19.md). Pinned Stellar CLI: 27.1.0.
++CANONICAL_HASH="502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58"
+ NETWORK="testnet"
+ 
+ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+diff --git a/scripts/bindings/verify.sh b/scripts/bindings/verify.sh
+index 5d3885f..fbdbfe0 100755
+--- a/scripts/bindings/verify.sh
++++ b/scripts/bindings/verify.sh
+@@ -10,7 +10,7 @@
+ # Usage: bash scripts/bindings/verify.sh
+ set -euo pipefail
+ 
+-CANONICAL_HASH="fdefad64b96837147e1c333e51f537b696eab925e9f147e63d597c04e3c903f0"
++CANONICAL_HASH="502ea4e7bdb3ea99880941f1d35ceb67fb598692c0bb40f842ef9c9f17d58b58"
+ NETWORK="testnet"
+ 
+ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+diff --git a/src/version.ts b/src/version.ts
+index 67f72f8..f3bb5b7 100644
+--- a/src/version.ts
++++ b/src/version.ts
+@@ -6,5 +6,5 @@
+ // This file is auto-generated. Do not edit manually.
+ // Run `pnpm run sync-version` (or `pnpm build`) to update.
+ 
+-export const VERSION = "0.16.2";
++export const VERSION = "0.16.3";
+ export const NAME = "passkey-kit";
+diff --git a/wrangler.toml b/wrangler.toml
+index a8c0fd5..0d513c7 100644
+--- a/wrangler.toml
++++ b/wrangler.toml
+@@ -11,14 +11,5 @@ name = "passkey-kit-demo"
+ pages_build_output_dir = "demo/dist"
+ compatibility_date = "2024-12-01"
+ 
+-# `deploy:demo:prod` runs `wrangler pages deploy --env production`. NOTE:
+-# `wrangler pages deploy` has no first-class `--env`; Pages selects
+-# production-vs-preview by BRANCH (`--branch`), not environment. This section
+-# only exists so `--env production` resolves instead of erroring. The correct
+-# fix belongs in the root package.json (owned by the demo/root, not services):
+-# change `deploy:demo:prod` to `wrangler pages deploy --branch production` (or
+-# drop it — a plain `pages deploy` publishes to production). See the C2 services
+-# todo comment for the handoff to the demo agent.
+-[env.production]
+-name = "passkey-kit-demo"
+-pages_build_output_dir = "demo/dist"
++# `deploy:demo:prod` publishes the built assets from the configured `main`
++# production branch. Pages treats every other branch as a preview deployment.

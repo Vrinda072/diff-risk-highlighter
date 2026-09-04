@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Diff Risk Highlighter",
+  "version": "0.1.0",
+  "description": "Flags risky vs. safe-to-skim diff hunks on GitHub pull request pages using static heuristics.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://api.anthropic.com/*"],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*/*/pull/*"],
+      "js": ["src/risk-engine.js", "src/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

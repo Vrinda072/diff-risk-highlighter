@@ -1,0 +1,886 @@
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Components/ChangePassword.tsx b/src/Unosquare.PassCore.Web/ClientApp/Components/ChangePassword.tsx
+index 4855ce47..ac5681fc 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Components/ChangePassword.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Components/ChangePassword.tsx
+@@ -23,20 +23,23 @@ export function ChangePassword() {
+     const [shouldReset, setReset] = useState(false);
+     const [isSubmitting, setIsSubmitting] = useState(false);
+ 
+-    const errorMessages = useMemo<Record<number, string>>(() => ({
+-        [ApiErrorCode.FieldRequired]: alerts?.errorFieldRequired || '',
+-        [ApiErrorCode.FieldMismatch]: alerts?.errorFieldMismatch || '',
+-        [ApiErrorCode.UserNotFound]: alerts?.errorInvalidUser || '',
+-        [ApiErrorCode.InvalidCredentials]: alerts?.errorInvalidCredentials || '',
+-        [ApiErrorCode.InvalidCaptcha]: alerts?.errorCaptcha || '',
+-        [ApiErrorCode.ChangeNotPermitted]: alerts?.errorPasswordChangeNotAllowed || '',
+-        [ApiErrorCode.InvalidDomain]: alerts?.errorInvalidDomain || '',
+-        [ApiErrorCode.LdapProblem]: alerts?.errorConnectionLdap || '',
+-        [ApiErrorCode.ComplexPassword]: alerts?.errorComplexPassword || '',
+-        [ApiErrorCode.MinimumScore]: alerts?.errorScorePassword || '',
+-        [ApiErrorCode.MinimumDistance]: alerts?.errorDistancePassword || '',
+-        [ApiErrorCode.PwnedPassword]: alerts?.errorPwnedPassword || '',
+-    }), [alerts]);
++    const errorMessages = useMemo<Record<number, string>>(
++        () => ({
++            [ApiErrorCode.FieldRequired]: alerts?.errorFieldRequired || '',
++            [ApiErrorCode.FieldMismatch]: alerts?.errorFieldMismatch || '',
++            [ApiErrorCode.UserNotFound]: alerts?.errorInvalidUser || '',
++            [ApiErrorCode.InvalidCredentials]: alerts?.errorInvalidCredentials || '',
++            [ApiErrorCode.InvalidCaptcha]: alerts?.errorCaptcha || '',
++            [ApiErrorCode.ChangeNotPermitted]: alerts?.errorPasswordChangeNotAllowed || '',
++            [ApiErrorCode.InvalidDomain]: alerts?.errorInvalidDomain || '',
++            [ApiErrorCode.LdapProblem]: alerts?.errorConnectionLdap || '',
++            [ApiErrorCode.ComplexPassword]: alerts?.errorComplexPassword || '',
++            [ApiErrorCode.MinimumScore]: alerts?.errorScorePassword || '',
++            [ApiErrorCode.MinimumDistance]: alerts?.errorDistancePassword || '',
++            [ApiErrorCode.PwnedPassword]: alerts?.errorPwnedPassword || '',
++        }),
++        [alerts],
++    );
+ 
+     const handleSubmit = useCallback(() => {
+         if (!isSubmitting) {
+@@ -45,30 +48,33 @@ export function ChangePassword() {
+         }
+     }, [isSubmitting]);
+ 
+-    const toSubmitData = useCallback(async (formData: IChangePasswordFormInitialModel): Promise<void> => {
+-        setSubmit(false);
+-        try {
+-            const payload = JSON.stringify({ ...formData, recaptcha: token });
+-            const response = await fetchRequest<ApiResponse<void>>('api/password', 'POST', payload);
+-            if (response?.errors?.length) {
+-                const errorAlertMessage = response.errors
+-                    .map((error: ApiError) =>
+-                        error.errorCode === ApiErrorCode.Generic
+-                            ? error.message
+-                            : errorMessages[error.errorCode] || 'An unknown error occurred.',
+-                    )
+-                    .join(' ');
+-                sendMessage(errorAlertMessage, 'error');
+-                return;
++    const toSubmitData = useCallback(
++        async (formData: IChangePasswordFormInitialModel): Promise<void> => {
++            setSubmit(false);
++            try {
++                const payload = JSON.stringify({ ...formData, recaptcha: token });
++                const response = await fetchRequest<ApiResponse<void>>('api/password', 'POST', payload);
++                if (response?.errors?.length) {
++                    const errorAlertMessage = response.errors
++                        .map((error: ApiError) =>
++                            error.errorCode === ApiErrorCode.Generic
++                                ? error.message
++                                : errorMessages[error.errorCode] || 'An unknown error occurred.',
++                        )
++                        .join(' ');
++                    sendMessage(errorAlertMessage, 'error');
++                    return;
++                }
++                setDialog(true);
++            } catch (err) {
++                const errorMsg = (err as { message?: string })?.message || String(err);
++                sendMessage(`An unexpected error occurred. Please try again later. Error: ${errorMsg}`, 'error');
++            } finally {
++                setIsSubmitting(false);
+             }
+-            setDialog(true);
+-        } catch (err) {
+-            const errorMsg = (err as { message?: string })?.message || String(err);
+-            sendMessage(`An unexpected error occurred. Please try again later. Error: ${errorMsg}`, 'error');
+-        } finally {
+-            setIsSubmitting(false);
+-        }
+-    }, [token, errorMessages, sendMessage]);
++        },
++        [token, errorMessages, sendMessage],
++    );
+ 
+     const onCloseDialog = useCallback(() => {
+         setDialog(false);
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Components/ChangePasswordForm.tsx b/src/Unosquare.PassCore.Web/ClientApp/Components/ChangePasswordForm.tsx
+index 17752b1b..cd3d62a7 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Components/ChangePasswordForm.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Components/ChangePasswordForm.tsx
+@@ -82,7 +82,13 @@ export function ChangePasswordForm({
+             newPassword: '',
+             newPasswordVerify: newPasswordVerifyHelpblock,
+         }),
+-        [context?.useEmail, usernameHelpblock, usernameDefaultDomainHelperBlock, currentPasswordHelpblock, newPasswordVerifyHelpblock],
++        [
++            context?.useEmail,
++            usernameHelpblock,
++            usernameDefaultDomainHelperBlock,
++            currentPasswordHelpblock,
++            newPasswordVerifyHelpblock,
++        ],
+     );
+ 
+     const getHelperText = useCallback(
+@@ -137,8 +143,8 @@ export function ChangePasswordForm({
+                     name: 'isUsernameValid',
+                     rule: (value, formData, ctx) => isUsernamePatternValid(value, formData, ctx, validationRegex),
+                     message: context?.useEmail
+-                        ? (context?.errorsPasswordForm?.usernameEmailPattern || 'Invalid email')
+-                        : (context?.errorsPasswordForm?.usernamePattern || 'Invalid username'),
++                        ? context?.errorsPasswordForm?.usernameEmailPattern || 'Invalid email'
++                        : context?.errorsPasswordForm?.usernamePattern || 'Invalid username',
+                 },
+             ],
+             currentPassword: [isRequired(context?.errorsPasswordForm?.fieldRequired || 'Field is required')],
+@@ -170,10 +176,7 @@ export function ChangePasswordForm({
+     }, [submitData, validateAllFields, toSubmitData, fields]);
+ 
+     useEffect(() => {
+-        onValidated(
+-            Object.keys(errors).some((key) => !!errors[key]) ||
+-                (recaptchaRequired && recaptchaToken === ''),
+-        );
++        onValidated(Object.keys(errors).some((key) => !!errors[key]) || (recaptchaRequired && recaptchaToken === ''));
+     }, [errors, onValidated, recaptchaRequired, recaptchaToken]);
+ 
+     useEffect(() => {
+@@ -194,10 +197,7 @@ export function ChangePasswordForm({
+     }, []);
+ 
+     return (
+-        <Stack
+-            spacing={2}
+-            sx={{ width: '80%', mx: 'auto', pt: 2 }}
+-        >
++        <Stack spacing={2} sx={{ width: '80%', mx: 'auto', pt: 2 }}>
+             <TextField
+                 autoFocus
+                 slotProps={{ htmlInput: { tabIndex: 1 } }}
+@@ -210,7 +210,7 @@ export function ChangePasswordForm({
+                 value={fields.username}
+                 fullWidth
+                 error={!!errors.username && (touched.username || !!fields.username)}
+-                helperText={getHelperText("username")}
++                helperText={getHelperText('username')}
+             />
+             <TextField
+                 slotProps={{ htmlInput: { tabIndex: 2 } }}
+@@ -224,7 +224,7 @@ export function ChangePasswordForm({
+                 value={fields.currentPassword}
+                 fullWidth
+                 error={!!errors.currentPassword && (touched.currentPassword || !!fields.currentPassword)}
+-                helperText={getHelperText("currentPassword")}
++                helperText={getHelperText('currentPassword')}
+             />
+             {usePasswordGeneration ? (
+                 <PasswordGenerator value={fields.newPassword} setValue={setGenerated} />
+@@ -242,7 +242,7 @@ export function ChangePasswordForm({
+                         value={fields.newPassword}
+                         fullWidth
+                         error={!!errors.newPassword && (touched.newPassword || !!fields.newPassword)}
+-                        helperText={getHelperText("newPassword")}
++                        helperText={getHelperText('newPassword')}
+                     />
+                     {showPasswordMeter && <PasswordStrengthBar newPassword={fields.newPassword} />}
+                     <Typography variant="body2" sx={{ marginBottom: '15px' }}>
+@@ -260,13 +260,11 @@ export function ChangePasswordForm({
+                         value={fields.newPasswordVerify}
+                         fullWidth
+                         error={!!errors.newPasswordVerify && (touched.newPasswordVerify || !!fields.newPasswordVerify)}
+-                        helperText={getHelperText("newPasswordVerify")}
++                        helperText={getHelperText('newPasswordVerify')}
+                     />
+                 </>
+             )}
+-            {recaptchaRequired && (
+-                <ReCaptcha setToken={setReCaptchaToken} shouldReset={shouldReset} />
+-            )}
++            {recaptchaRequired && <ReCaptcha setToken={setReCaptchaToken} shouldReset={shouldReset} />}
+         </Stack>
+     );
+ }
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Components/Footer.tsx b/src/Unosquare.PassCore.Web/ClientApp/Components/Footer.tsx
+index 01c664a2..07427461 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Components/Footer.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Components/Footer.tsx
+@@ -27,11 +27,7 @@ export function Footer() {
+                     }}
+                     alt="PassCore Logo"
+                 />
+-                <Stack
+-                    direction="row"
+-                    spacing={1}
+-                    sx={{ alignItems: 'center' }}
+-                >
++                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                     <Box component="img" src={osiLogo} sx={{ maxHeight: 30 }} alt="OSI Logo" />
+                     <Box component="img" src={mitLogo} sx={{ maxHeight: 30 }} alt="MIT Logo" />
+                     <Box component="img" src={uslogo} sx={{ maxHeight: 30 }} alt="US Logo" />
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Components/GlobalSnackbar.tsx b/src/Unosquare.PassCore.Web/ClientApp/Components/GlobalSnackbar.tsx
+index b049b1a9..03b9a37d 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Components/GlobalSnackbar.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Components/GlobalSnackbar.tsx
+@@ -9,12 +9,7 @@ export interface GlobalSnackbarProps {
+     readonly milliSeconds?: number;
+ }
+ 
+-export function GlobalSnackbar({
+-    open,
+-    message,
+-    onClose,
+-    milliSeconds = 5000,
+-}: GlobalSnackbarProps) {
++export function GlobalSnackbar({ open, message, onClose, milliSeconds = 5000 }: GlobalSnackbarProps) {
+     const anchorOrigin: SnackbarOrigin = {
+         horizontal: 'right',
+         vertical: 'bottom',
+@@ -28,11 +23,7 @@ export function GlobalSnackbar({
+             autoHideDuration={milliSeconds}
+             onClose={onClose}
+         >
+-            <Alert
+-                severity={message.messageType}
+-                onClose={onClose}
+-                variant="filled"
+-            >
++            <Alert severity={message.messageType} onClose={onClose} variant="filled">
+                 {message.messageText}
+             </Alert>
+         </Snackbar>
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Components/GoogleReCaptcha/loadReCaptcha.ts b/src/Unosquare.PassCore.Web/ClientApp/Components/GoogleReCaptcha/loadReCaptcha.ts
+index a8979dbc..4ca1d01f 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Components/GoogleReCaptcha/loadReCaptcha.ts
++++ b/src/Unosquare.PassCore.Web/ClientApp/Components/GoogleReCaptcha/loadReCaptcha.ts
+@@ -4,7 +4,9 @@ const loadReCaptcha = (hl?: string | null) => {
+     const script = document.createElement('script');
+     script.async = true;
+     script.defer = true;
+-    script.src = hl ? `https://www.google.com/recaptcha/api.js?hl=${encodeURIComponent(hl)}` : 'https://www.google.com/recaptcha/api.js';
++    script.src = hl
++        ? `https://www.google.com/recaptcha/api.js?hl=${encodeURIComponent(hl)}`
++        : 'https://www.google.com/recaptcha/api.js';
+     document.body.appendChild(script);
+ };
+ 
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Components/PasswordGenerator.tsx b/src/Unosquare.PassCore.Web/ClientApp/Components/PasswordGenerator.tsx
+index ec881990..3670d5c0 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Components/PasswordGenerator.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Components/PasswordGenerator.tsx
+@@ -11,10 +11,7 @@ import { GlobalContext, SnackbarContext } from '../Provider/GlobalContext';
+ import { IPasswordGenProps } from '../types/Components';
+ import { fetchRequest } from '../Utils/FetchRequest';
+ 
+-export function PasswordGenerator({
+-    value,
+-    setValue,
+-}: IPasswordGenProps) {
++export function PasswordGenerator({ value, setValue }: IPasswordGenProps) {
+     const { sendMessage } = use(SnackbarContext)!;
+     const { changePasswordForm } = use(GlobalContext)!;
+     const [visibility, setVisibility] = useState(false);
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Components/PasswordStrengthBar.tsx b/src/Unosquare.PassCore.Web/ClientApp/Components/PasswordStrengthBar.tsx
+index fb58b090..34a6756b 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Components/PasswordStrengthBar.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Components/PasswordStrengthBar.tsx
+@@ -121,7 +121,8 @@ export function PasswordStrengthBar({ newPassword }: PasswordStrengthBarProps) {
+                     sx={{
+                         height: 8,
+                         borderRadius: 4,
+-                        backgroundColor: theme.palette.mode === 'light' ? theme.palette.grey[200] : theme.palette.grey[800],
++                        backgroundColor:
++                            theme.palette.mode === 'light' ? theme.palette.grey[200] : theme.palette.grey[800],
+                         '& .MuiLinearProgress-bar': {
+                             borderRadius: 4,
+                             backgroundColor: strength.barColor,
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Components/hooks/useEffectWithLoading.ts b/src/Unosquare.PassCore.Web/ClientApp/Components/hooks/useEffectWithLoading.ts
+index bc3b38ef..e4638cc4 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Components/hooks/useEffectWithLoading.ts
++++ b/src/Unosquare.PassCore.Web/ClientApp/Components/hooks/useEffectWithLoading.ts
+@@ -1,9 +1,6 @@
+ import { useState, useEffect } from 'react';
+ 
+-export function useEffectWithLoading<T>(
+-    effect: () => Promise<T>,
+-    initialValue: T
+-): [T, boolean, Error | null] {
++export function useEffectWithLoading<T>(effect: () => Promise<T>, initialValue: T): [T, boolean, Error | null] {
+     const [getter, setter] = useState(initialValue);
+     const [isLoading, setIsLoading] = useState(true);
+     const [error, setError] = useState<Error | null>(null);
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Dialogs/ChangePasswordDialog.tsx b/src/Unosquare.PassCore.Web/ClientApp/Dialogs/ChangePasswordDialog.tsx
+index cf448bac..291d9bce 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Dialogs/ChangePasswordDialog.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Dialogs/ChangePasswordDialog.tsx
+@@ -12,10 +12,7 @@ interface IChangePasswordDialogProps {
+     readonly onClose: () => void;
+ }
+ 
+-export function ChangePasswordDialog({
+-    open,
+-    onClose,
+-}: IChangePasswordDialogProps) {
++export function ChangePasswordDialog({ open, onClose }: IChangePasswordDialogProps) {
+     const context = use(GlobalContext)!;
+     const successAlertBody = context?.alerts?.successAlertBody || '';
+     const successAlertTitle = context?.alerts?.successAlertTitle || '';
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Main.tsx b/src/Unosquare.PassCore.Web/ClientApp/Main.tsx
+index 59f4f387..6b0a46fc 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Main.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Main.tsx
+@@ -50,7 +50,8 @@ export function Main() {
+         return (
+             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+                 <Typography variant="h6" sx={{ color: 'error.main' }}>
+-                    Failed to load application settings. Be sure the settings file exists and file permissions are correct.
++                    Failed to load application settings. Be sure the settings file exists and file permissions are
++                    correct.
+                 </Typography>
+             </Box>
+         );
+@@ -63,4 +64,4 @@ export function Main() {
+             </SnackbarContextProvider>
+         </GlobalContextProvider>
+     );
+-}
+\ No newline at end of file
++}
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Provider/GlobalContextProvider.tsx b/src/Unosquare.PassCore.Web/ClientApp/Provider/GlobalContextProvider.tsx
+index 0c0ab6fa..632c5498 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Provider/GlobalContextProvider.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Provider/GlobalContextProvider.tsx
+@@ -7,15 +7,8 @@ interface IGlobalContextProviderProps {
+     readonly settings: IGlobalContext;
+ }
+ 
+-export function GlobalContextProvider({
+-    children,
+-    settings,
+-}: IGlobalContextProviderProps) {
++export function GlobalContextProvider({ children, settings }: IGlobalContextProviderProps) {
+     const providerValue = useMemo(() => ({ ...settings }), [settings]);
+ 
+-    return (
+-        <GlobalContext.Provider value={providerValue}>
+-            {children}
+-        </GlobalContext.Provider>
+-    );
+-}
+\ No newline at end of file
++    return <GlobalContext.Provider value={providerValue}>{children}</GlobalContext.Provider>;
++}
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Provider/SnackbarContextProvider.tsx b/src/Unosquare.PassCore.Web/ClientApp/Provider/SnackbarContextProvider.tsx
+index 5b47214e..a4ccc3e8 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Provider/SnackbarContextProvider.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Provider/SnackbarContextProvider.tsx
+@@ -38,9 +38,12 @@ export function SnackbarContextProvider({ children }: ISnackbarProviderProps) {
+         }));
+     }, []);
+ 
+-    const providerValue = useMemo(() => ({
+-        sendMessage,
+-    }), [sendMessage]);
++    const providerValue = useMemo(
++        () => ({
++            sendMessage,
++        }),
++        [sendMessage],
++    );
+ 
+     return (
+         <SnackbarContext.Provider value={providerValue}>
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Utils/AppSettings.ts b/src/Unosquare.PassCore.Web/ClientApp/Utils/AppSettings.ts
+index 2d64e151..e706f8be 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Utils/AppSettings.ts
++++ b/src/Unosquare.PassCore.Web/ClientApp/Utils/AppSettings.ts
+@@ -1,4 +1,4 @@
+-import { IGlobalContext } from "../types/Providers";
++import { IGlobalContext } from '../types/Providers';
+ 
+ export async function resolveAppSettings(): Promise<IGlobalContext> {
+     const response = await fetch('api/password');
+@@ -16,4 +16,4 @@ export async function resolveAppSettings(): Promise<IGlobalContext> {
+         console.error('Error parsing AppSettings:', error);
+         throw new Error('Failed to parse AppSettings.');
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Utils/FetchRequest.ts b/src/Unosquare.PassCore.Web/ClientApp/Utils/FetchRequest.ts
+index 220dd5ad..cace909c 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Utils/FetchRequest.ts
++++ b/src/Unosquare.PassCore.Web/ClientApp/Utils/FetchRequest.ts
+@@ -10,7 +10,7 @@
+ export async function fetchRequest<T = unknown>(
+     url: string,
+     requestMethod: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH',
+-    requestBody?: unknown
++    requestBody?: unknown,
+ ): Promise<T> {
+     // Determine the body. If requestBody is already a string, use it directly.
+     let body: string | null = null;
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Utils/HtmlStringUtils.tsx b/src/Unosquare.PassCore.Web/ClientApp/Utils/HtmlStringUtils.tsx
+index 4d8b14a0..996eba63 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Utils/HtmlStringUtils.tsx
++++ b/src/Unosquare.PassCore.Web/ClientApp/Utils/HtmlStringUtils.tsx
+@@ -52,12 +52,7 @@ export function parsePlainTextAndLinks(htmlString: string): ReactNode[] {
+             const href = anchor?.getAttribute('href') || '#';
+             const target = anchor?.getAttribute('target') ?? undefined;
+             result.push(
+-                <a
+-                    key={href}
+-                    href={href}
+-                    target={target}
+-                    rel={target === '_blank' ? 'noopener noreferrer' : undefined}
+-                >
++                <a key={href} href={href} target={target} rel={target === '_blank' ? 'noopener noreferrer' : undefined}>
+                     {parts[i + 2] || ''}
+                 </a>,
+             );
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/Utils/ValidateForm.ts b/src/Unosquare.PassCore.Web/ClientApp/Utils/ValidateForm.ts
+index 3de552b3..5ee2ae7f 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/Utils/ValidateForm.ts
++++ b/src/Unosquare.PassCore.Web/ClientApp/Utils/ValidateForm.ts
+@@ -16,7 +16,7 @@ type FieldValidationRules = Partial<Record<keyof IChangePasswordFormInitialModel
+ export const validateForm = async (
+     formData: IChangePasswordFormInitialModel,
+     context: IGlobalContext,
+-    fieldRules: FieldValidationRules
++    fieldRules: FieldValidationRules,
+ ): Promise<ValidationErrors> => {
+     const errors: ValidationErrors = {};
+ 
+@@ -44,7 +44,7 @@ export const validateForm = async (
+             if (fieldError) {
+                 errors[fieldName] = fieldError;
+             }
+-        })
++        }),
+     );
+ 
+     return errors;
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/__global.d.ts b/src/Unosquare.PassCore.Web/ClientApp/__global.d.ts
+index a666e6d3..e2c661cf 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/__global.d.ts
++++ b/src/Unosquare.PassCore.Web/ClientApp/__global.d.ts
+@@ -3,11 +3,7 @@ export {};
+ declare global {
+     interface Window {
+         grecaptcha: {
+-            render: (
+-                container: HTMLElement | null,
+-                parameters: Record<string, unknown>,
+-                inherit?: boolean
+-            ) => number;
++            render: (container: HTMLElement | null, parameters: Record<string, unknown>, inherit?: boolean) => number;
+             reset: (widgetId?: number) => void;
+             execute: (widgetId?: number) => void;
+         };
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/eslint.config.mjs b/src/Unosquare.PassCore.Web/ClientApp/eslint.config.mjs
+index 48ac1b4d..af890f94 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/eslint.config.mjs
++++ b/src/Unosquare.PassCore.Web/ClientApp/eslint.config.mjs
+@@ -1,34 +1,34 @@
+-import globals from 'globals'
+-import pluginJs from '@eslint/js'
+-import tseslint from 'typescript-eslint'
+-import pluginReact from 'eslint-plugin-react'
+-import pluginReactHooks from 'eslint-plugin-react-hooks'
++import globals from 'globals';
++import pluginJs from '@eslint/js';
++import tseslint from 'typescript-eslint';
++import pluginReact from 'eslint-plugin-react';
++import pluginReactHooks from 'eslint-plugin-react-hooks';
+ 
+ /** @type {import('eslint').Linter.Config[]} */
+ export default [
+-  { files: ['**/*.{js,mjs,cjs,ts,jsx,tsx}'] },
+-  { languageOptions: { globals: { ...globals.browser, ...globals.node } } },
+-  pluginJs.configs.recommended,
+-  ...tseslint.configs.recommended,
+-  pluginReact.configs.flat.recommended,
+-  {
+-    plugins: {
+-      'react-hooks': pluginReactHooks
++    { files: ['**/*.{js,mjs,cjs,ts,jsx,tsx}'] },
++    { languageOptions: { globals: { ...globals.browser, ...globals.node } } },
++    pluginJs.configs.recommended,
++    ...tseslint.configs.recommended,
++    pluginReact.configs.flat.recommended,
++    {
++        plugins: {
++            'react-hooks': pluginReactHooks,
++        },
++        rules: {
++            ...pluginReactHooks.configs.recommended.rules,
++            'react-hooks/exhaustive-deps': 'error',
++        },
+     },
+-    rules: {
+-      ...pluginReactHooks.configs.recommended.rules,
+-      'react-hooks/exhaustive-deps': 'error'
+-    }
+-  },
+-  {
+-    settings: {
+-      react: { version: 'detect' }
++    {
++        settings: {
++            react: { version: 'detect' },
++        },
++        rules: {
++            'react/react-in-jsx-scope': 'off',
++            'react/prop-types': 'off',
++            '@typescript-eslint/no-explicit-any': 'warn',
++            '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
++        },
+     },
+-    rules: {
+-      'react/react-in-jsx-scope': 'off',
+-      'react/prop-types': 'off',
+-      '@typescript-eslint/no-explicit-any': 'warn',
+-      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }]
+-    }
+-  }
+-]
++];
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/playwright.config.ts b/src/Unosquare.PassCore.Web/ClientApp/playwright.config.ts
+index 7e804e72..2904eaa0 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/playwright.config.ts
++++ b/src/Unosquare.PassCore.Web/ClientApp/playwright.config.ts
+@@ -1,24 +1,24 @@
+ import { defineConfig, devices } from '@playwright/test';
+ 
+ export default defineConfig({
+-  testDir: './tests/e2e',
+-  fullyParallel: true,
+-  forbidOnly: !!process.env.CI,
+-  retries: process.env.CI ? 2 : 0,
+-  workers: process.env.CI ? 1 : undefined,
+-  reporter: 'html',
+-  use: {
+-    baseURL: process.env.BASE_URL ?? 'http://localhost:5000',
+-    trace: 'on-first-retry',
+-  },
+-  projects: [
+-    {
+-      name: 'chromium',
+-      use: { ...devices['Desktop Chrome'] },
++    testDir: './tests/e2e',
++    fullyParallel: true,
++    forbidOnly: !!process.env.CI,
++    retries: process.env.CI ? 2 : 0,
++    workers: process.env.CI ? 1 : undefined,
++    reporter: 'html',
++    use: {
++        baseURL: process.env.BASE_URL ?? 'http://localhost:5000',
++        trace: 'on-first-retry',
+     },
+-    {
+-      name: 'firefox',
+-      use: { ...devices['Desktop Firefox'] },
+-    },
+-  ],
++    projects: [
++        {
++            name: 'chromium',
++            use: { ...devices['Desktop Chrome'] },
++        },
++        {
++            name: 'firefox',
++            use: { ...devices['Desktop Firefox'] },
++        },
++    ],
+ });
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/tests/e2e/password-change.spec.ts b/src/Unosquare.PassCore.Web/ClientApp/tests/e2e/password-change.spec.ts
+index 2a150935..3c10145a 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/tests/e2e/password-change.spec.ts
++++ b/src/Unosquare.PassCore.Web/ClientApp/tests/e2e/password-change.spec.ts
+@@ -1,123 +1,135 @@
+ import { test, expect } from '@playwright/test';
+ 
+ test.describe('Password Change Flow', () => {
+-  test.beforeEach(async ({ page }) => {
+-    await page.goto('/');
+-  });
+-
+-  test('should change password successfully with valid credentials', async ({ page }) => {
+-    const responsePromise = page.waitForResponse(response => response.url().includes('/api/password') && response.status() === 200);
++    test.beforeEach(async ({ page }) => {
++        await page.goto('/');
++    });
+ 
+-    await page.getByLabel('Username', { exact: true }).fill('someuser@test.com');
+-    await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
+-    await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
+-    await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
++    test('should change password successfully with valid credentials', async ({ page }) => {
++        const responsePromise = page.waitForResponse(
++            (response) => response.url().includes('/api/password') && response.status() === 200,
++        );
+ 
+-    await page.getByRole('button', { name: /change password/i }).click();
++        await page.getByLabel('Username', { exact: true }).fill('someuser@test.com');
++        await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
++        await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
++        await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
+ 
+-    await responsePromise;
+-    await expect(page.getByTestId('success-dialog')).toBeVisible();
+-    await expect(page.locator('text=You have changed your password successfully')).toBeVisible();
+-  });
++        await page.getByRole('button', { name: /change password/i }).click();
+ 
+-  test('should show error for invalid current password', async ({ page }) => {
+-    const responsePromise = page.waitForResponse(response => response.url().includes('/api/password') && response.status() === 400);
++        await responsePromise;
++        await expect(page.getByTestId('success-dialog')).toBeVisible();
++        await expect(page.locator('text=You have changed your password successfully')).toBeVisible();
++    });
+ 
+-    await page.getByLabel('Username', { exact: true }).fill('invalidCredentials@test.com');
+-    await page.getByLabel('Current Password', { exact: true }).fill('wrong');
+-    await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
+-    await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
++    test('should show error for invalid current password', async ({ page }) => {
++        const responsePromise = page.waitForResponse(
++            (response) => response.url().includes('/api/password') && response.status() === 400,
++        );
+ 
+-    await page.getByRole('button', { name: /change password/i }).click();
++        await page.getByLabel('Username', { exact: true }).fill('invalidCredentials@test.com');
++        await page.getByLabel('Current Password', { exact: true }).fill('wrong');
++        await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
++        await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
+ 
+-    await responsePromise;
+-    await expect(page.getByTestId('snackbar-notification')).toBeVisible();
+-    await expect(page.locator('text=You need to provide the correct current password')).toBeVisible();
+-  });
++        await page.getByRole('button', { name: /change password/i }).click();
+ 
+-  test('should show error for user not found', async ({ page }) => {
+-    const responsePromise = page.waitForResponse(response => response.url().includes('/api/password') && response.status() === 400);
++        await responsePromise;
++        await expect(page.getByTestId('snackbar-notification')).toBeVisible();
++        await expect(page.locator('text=You need to provide the correct current password')).toBeVisible();
++    });
+ 
+-    await page.getByLabel('Username', { exact: true }).fill('userNotFound@test.com');
+-    await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
+-    await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
+-    await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
++    test('should show error for user not found', async ({ page }) => {
++        const responsePromise = page.waitForResponse(
++            (response) => response.url().includes('/api/password') && response.status() === 400,
++        );
+ 
+-    await page.getByRole('button', { name: /change password/i }).click();
++        await page.getByLabel('Username', { exact: true }).fill('userNotFound@test.com');
++        await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
++        await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
++        await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
+ 
+-    await responsePromise;
+-    await expect(page.getByTestId('snackbar-notification')).toBeVisible();
+-    await expect(page.locator('text=We could not find your user account')).toBeVisible();
+-  });
++        await page.getByRole('button', { name: /change password/i }).click();
+ 
+-  test('should show error for change not permitted (group policy)', async ({ page }) => {
+-    const responsePromise = page.waitForResponse(response => response.url().includes('/api/password') && response.status() === 400);
++        await responsePromise;
++        await expect(page.getByTestId('snackbar-notification')).toBeVisible();
++        await expect(page.locator('text=We could not find your user account')).toBeVisible();
++    });
+ 
+-    await page.getByLabel('Username', { exact: true }).fill('changeNotPermitted@test.com');
+-    await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
+-    await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
+-    await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
++    test('should show error for change not permitted (group policy)', async ({ page }) => {
++        const responsePromise = page.waitForResponse(
++            (response) => response.url().includes('/api/password') && response.status() === 400,
++        );
+ 
+-    await page.getByRole('button', { name: /change password/i }).click();
++        await page.getByLabel('Username', { exact: true }).fill('changeNotPermitted@test.com');
++        await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
++        await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
++        await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
+ 
+-    await responsePromise;
+-    await expect(page.getByTestId('snackbar-notification')).toBeVisible();
+-    await expect(page.locator('text=Your password cannot be changed at this time')).toBeVisible();
+-  });
++        await page.getByRole('button', { name: /change password/i }).click();
+ 
+-  test('should show error for password policy violation', async ({ page }) => {
+-    const responsePromise = page.waitForResponse(response => response.url().includes('/api/password') && response.status() === 400);
++        await responsePromise;
++        await expect(page.getByTestId('snackbar-notification')).toBeVisible();
++        await expect(page.locator('text=Your password cannot be changed at this time')).toBeVisible();
++    });
+ 
+-    await page.getByLabel('Username', { exact: true }).fill('complexPassword@test.com');
+-    await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
+-    await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
+-    await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
++    test('should show error for password policy violation', async ({ page }) => {
++        const responsePromise = page.waitForResponse(
++            (response) => response.url().includes('/api/password') && response.status() === 400,
++        );
+ 
+-    await page.getByRole('button', { name: /change password/i }).click();
++        await page.getByLabel('Username', { exact: true }).fill('complexPassword@test.com');
++        await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
++        await page.getByLabel('New Password', { exact: true }).fill('SecurePassword123!');
++        await page.getByLabel('Re-enter New Password', { exact: true }).fill('SecurePassword123!');
+ 
+-    await responsePromise;
+-    await expect(page.getByTestId('snackbar-notification')).toBeVisible();
+-    await expect(page.locator('text=The new password was rejected by the domain')).toBeVisible();
+-  });
++        await page.getByRole('button', { name: /change password/i }).click();
+ 
+-  test('should support password generation flow when enabled', async ({ page }) => {
+-    // Intercept config endpoint and set usePasswordGeneration: true
+-    await page.route('**/api/password', async route => {
+-      const response = await route.fetch();
+-      const json = await response.json();
+-      json.usePasswordGeneration = true;
+-      await route.fulfill({ json });
++        await responsePromise;
++        await expect(page.getByTestId('snackbar-notification')).toBeVisible();
++        await expect(page.locator('text=The new password was rejected by the domain')).toBeVisible();
+     });
+ 
+-    // Intercept generated password endpoint
+-    await page.route('**/api/password/generated', async route => {
+-      await route.fulfill({
+-        status: 200,
+-        contentType: 'application/json',
+-        body: JSON.stringify({ password: 'm!/j%JZ.&Hjq,8.V9_TM' })
+-      });
++    test('should support password generation flow when enabled', async ({ page }) => {
++        // Intercept config endpoint and set usePasswordGeneration: true
++        await page.route('**/api/password', async (route) => {
++            const response = await route.fetch();
++            const json = await response.json();
++            json.usePasswordGeneration = true;
++            await route.fulfill({ json });
++        });
++
++        // Intercept generated password endpoint
++        await page.route('**/api/password/generated', async (route) => {
++            await route.fulfill({
++                status: 200,
++                contentType: 'application/json',
++                body: JSON.stringify({ password: 'm!/j%JZ.&Hjq,8.V9_TM' }),
++            });
++        });
++
++        // Intercept the submission
++        const responsePromise = page.waitForResponse(
++            (response) => response.url().includes('/api/password') && response.status() === 200,
++        );
++
++        await page.goto('/');
++
++        await page.getByLabel('Username', { exact: true }).fill('someuser@test.com');
++        await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
++
++        // Wait for password generator input to be populated with the generated password
++        const generatedInput = page.locator('#generatedPassword');
++        await expect(generatedInput).toHaveValue('m!/j%JZ.&Hjq,8.V9_TM');
++
++        // The submit button should not be disabled
++        const submitBtn = page.getByTestId('submit-button');
++        await expect(submitBtn).toBeEnabled();
++
++        await submitBtn.click();
++
++        await responsePromise;
++        await expect(page.getByTestId('success-dialog')).toBeVisible();
++        await expect(page.locator('text=You have changed your password successfully')).toBeVisible();
+     });
+-
+-    // Intercept the submission
+-    const responsePromise = page.waitForResponse(response => response.url().includes('/api/password') && response.status() === 200);
+-
+-    await page.goto('/');
+-
+-    await page.getByLabel('Username', { exact: true }).fill('someuser@test.com');
+-    await page.getByLabel('Current Password', { exact: true }).fill('OldPassword123!');
+-
+-    // Wait for password generator input to be populated with the generated password
+-    const generatedInput = page.locator('#generatedPassword');
+-    await expect(generatedInput).toHaveValue('m!/j%JZ.&Hjq,8.V9_TM');
+-
+-    // The submit button should not be disabled
+-    const submitBtn = page.getByTestId('submit-button');
+-    await expect(submitBtn).toBeEnabled();
+-
+-    await submitBtn.click();
+-
+-    await responsePromise;
+-    await expect(page.getByTestId('success-dialog')).toBeVisible();
+-    await expect(page.locator('text=You have changed your password successfully')).toBeVisible();
+-  });
+ });
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/tsconfig.json b/src/Unosquare.PassCore.Web/ClientApp/tsconfig.json
+index dba87124..5425f179 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/tsconfig.json
++++ b/src/Unosquare.PassCore.Web/ClientApp/tsconfig.json
+@@ -2,10 +2,7 @@
+     "compilerOptions": {
+         // Language
+         "target": "ES2020",
+-        "lib": [
+-            "esnext",
+-            "dom"
+-        ],
++        "lib": ["esnext", "dom"],
+         "jsx": "react-jsx",
+         // Modules
+         "module": "esnext",
+@@ -21,14 +18,8 @@
+         // Build behavior
+         "isolatedModules": true,
+         "skipLibCheck": true,
+-        "types": [
+-            "node"
+-        ]
++        "types": ["node"]
+     },
+-    "include": [
+-        "./**/*"
+-    ],
+-    "exclude": [
+-        "node_modules"
+-    ]
++    "include": ["./**/*"],
++    "exclude": ["node_modules"]
+ }
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/types/Providers.ts b/src/Unosquare.PassCore.Web/ClientApp/types/Providers.ts
+index 568baae3..4a6c40c5 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/types/Providers.ts
++++ b/src/Unosquare.PassCore.Web/ClientApp/types/Providers.ts
+@@ -1,4 +1,4 @@
+-import { SnackbarMessageType } from "./Components";
++import { SnackbarMessageType } from './Components';
+ 
+ /**
+  * Mirrors the server-side ApiErrorCode enum.
+diff --git a/src/Unosquare.PassCore.Web/ClientApp/version-script.mjs b/src/Unosquare.PassCore.Web/ClientApp/version-script.mjs
+index 8cee4c81..26781511 100644
+--- a/src/Unosquare.PassCore.Web/ClientApp/version-script.mjs
++++ b/src/Unosquare.PassCore.Web/ClientApp/version-script.mjs
+@@ -1,5 +1,5 @@
+ import fs from 'node:fs'; // Import fs using ES6 syntax
+-import packageJson from './package.json' with { type: "json" }; // Import JSON to retrieve version
++import packageJson from './package.json' with { type: 'json' }; // Import JSON to retrieve version
+ 
+ const version = packageJson.version;
+ const versionFileContent = `// Generated version file
+@@ -8,4 +8,4 @@ export const appVersion = '${version}';
+ 
+ fs.writeFileSync('version.ts', versionFileContent);
+ 
+-console.log(`Version file generated at version.ts with version: ${version}`);
+\ No newline at end of file
++console.log(`Version file generated at version.ts with version: ${version}`);
