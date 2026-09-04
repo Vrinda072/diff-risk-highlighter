@@ -1,0 +1,37 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c5e0fc3d961..cd5e189ed27 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -19,6 +19,7 @@ Notable changes to the `alacritty_terminal` crate are documented in its
+ 
+ - Spurious "Failed to set new owner of XCB selection" warnings on X11
+ - Lacking permissions to launch software sending Apple events
++- Off-by-one in vi mode ParagraphUp action
+ 
+ ## 0.17.0
+ 
+diff --git a/alacritty_terminal/CHANGELOG.md b/alacritty_terminal/CHANGELOG.md
+index 3d5cac7dda7..248f9a53486 100644
+--- a/alacritty_terminal/CHANGELOG.md
++++ b/alacritty_terminal/CHANGELOG.md
+@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+ ### Fixed
+ 
+ - Panic when the PTY could not be set to non-blocking
++- Off-by-one in ViMotion::ParagraphUp
+ 
+ ## 0.26.0
+ 
+diff --git a/alacritty_terminal/src/vi_mode.rs b/alacritty_terminal/src/vi_mode.rs
+index f3655b30a9d..765cca6cb69 100644
+--- a/alacritty_terminal/src/vi_mode.rs
++++ b/alacritty_terminal/src/vi_mode.rs
+@@ -161,7 +161,7 @@ impl ViModeCursor {
+                 // Skip empty lines until we find the next paragraph,
+                 // then skip over the paragraph until we reach the next empty line.
+                 let topmost_line = term.topmost_line();
+-                self.point.line = (*topmost_line..*self.point.line)
++                self.point.line = (*topmost_line..=*self.point.line)
+                     .rev()
+                     .skip_while(|line| term.grid()[Line(*line)].is_clear())
+                     .find(|line| term.grid()[Line(*line)].is_clear())

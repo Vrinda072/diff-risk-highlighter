@@ -1,0 +1,304 @@
+diff --git a/squarelet/organizations/tasks.py b/squarelet/organizations/tasks.py
+index 5d901ee6..303add4d 100644
+--- a/squarelet/organizations/tasks.py
++++ b/squarelet/organizations/tasks.py
+@@ -371,20 +371,26 @@ def handle_invoice_updated(invoice_data):
+     )
+ 
+ 
+-@shared_task(name="squarelet.organizations.tasks.handle_invoice_finalized")
+-def handle_invoice_finalized(invoice_data):
++@shared_task(
++    name="squarelet.organizations.tasks.handle_invoice_finalized",
++    bind=True,
++    max_retries=5,
++)
++def handle_invoice_finalized(self, invoice_data):
+     """Handle receiving an invoice.finalized event from the Stripe webhook"""
+     invoice_id = invoice_data["id"]
+     try:
+         invoice = Invoice.objects.get(invoice_id=invoice_id)
+-    except Invoice.DoesNotExist:
++    except Invoice.DoesNotExist as exc:
++        if self.request.retries < self.max_retries:
++            raise self.retry(exc=exc, countdown=10)
+         stripe_link = get_stripe_dashboard_url("invoices", invoice_id)
+-        logger.error(
+-            "[STRIPE-WEBHOOK-INVOICE] Invoice finalized event for non-existent "
+-            "invoice: %s (%s)",
++        logger.info(
++            "[STRIPE-WEBHOOK-INVOICE] Received finalized event for invoice not tracked "
++            "in our system after %d retries: %s (%s)",
++            self.max_retries,
+             invoice_id,
+             stripe_link,
+-            exc_info=sys.exc_info(),
+         )
+         return
+ 
+@@ -658,20 +664,26 @@ def handle_subscription_deleted(subscription_data):
+     _reconcile_cancelled_subscription(subscription, "subscription.deleted")
+ 
+ 
+-@shared_task(name="squarelet.organizations.tasks.handle_invoice_paid")
+-def handle_invoice_paid(invoice_data):
++@shared_task(
++    name="squarelet.organizations.tasks.handle_invoice_paid",
++    bind=True,
++    max_retries=5,
++)
++def handle_invoice_paid(self, invoice_data):
+     """Handle receiving an invoice.paid event from the Stripe webhook"""
+     invoice_id = invoice_data["id"]
+     try:
+         invoice = Invoice.objects.get(invoice_id=invoice_id)
+-    except Invoice.DoesNotExist:
++    except Invoice.DoesNotExist as exc:
++        if self.request.retries < self.max_retries:
++            raise self.retry(exc=exc, countdown=10)
+         stripe_link = get_stripe_dashboard_url("invoices", invoice_id)
+-        logger.error(
+-            "[STRIPE-WEBHOOK-INVOICE] Invoice payment succeeded event for "
+-            "non-existent invoice: %s (%s)",
++        logger.info(
++            "[STRIPE-WEBHOOK-INVOICE] Received payment succeeded event for invoice "
++            "not tracked in our system after %d retries: %s (%s)",
++            self.max_retries,
+             invoice_id,
+             stripe_link,
+-            exc_info=sys.exc_info(),
+         )
+         return
+ 
+@@ -701,20 +713,26 @@ def handle_invoice_paid(invoice_data):
+     )
+ 
+ 
+-@shared_task(name="squarelet.organizations.tasks.handle_invoice_marked_uncollectible")
+-def handle_invoice_marked_uncollectible(invoice_data):
++@shared_task(
++    name="squarelet.organizations.tasks.handle_invoice_marked_uncollectible",
++    bind=True,
++    max_retries=5,
++)
++def handle_invoice_marked_uncollectible(self, invoice_data):
+     """Handle receiving an invoice.marked_uncollectible event from the Stripe webhook"""
+     invoice_id = invoice_data["id"]
+     try:
+         invoice = Invoice.objects.get(invoice_id=invoice_id)
+-    except Invoice.DoesNotExist:
++    except Invoice.DoesNotExist as exc:
++        if self.request.retries < self.max_retries:
++            raise self.retry(exc=exc, countdown=10)
+         stripe_link = get_stripe_dashboard_url("invoices", invoice_id)
+-        logger.error(
+-            "[STRIPE-WEBHOOK-INVOICE] Invoice marked uncollectible event for "
+-            "non-existent invoice: %s (%s)",
++        logger.info(
++            "[STRIPE-WEBHOOK-INVOICE] Received marked uncollectible event for invoice "
++            "not tracked in our system after %d retries: %s (%s)",
++            self.max_retries,
+             invoice_id,
+             stripe_link,
+-            exc_info=sys.exc_info(),
+         )
+         return
+ 
+@@ -728,20 +746,26 @@ def handle_invoice_marked_uncollectible(invoice_data):
+     )
+ 
+ 
+-@shared_task(name="squarelet.organizations.tasks.handle_invoice_voided")
+-def handle_invoice_voided(invoice_data):
++@shared_task(
++    name="squarelet.organizations.tasks.handle_invoice_voided",
++    bind=True,
++    max_retries=5,
++)
++def handle_invoice_voided(self, invoice_data):
+     """Handle receiving an invoice.voided event from the Stripe webhook"""
+     invoice_id = invoice_data["id"]
+     try:
+         invoice = Invoice.objects.get(invoice_id=invoice_id)
+-    except Invoice.DoesNotExist:
++    except Invoice.DoesNotExist as exc:
++        if self.request.retries < self.max_retries:
++            raise self.retry(exc=exc, countdown=10)
+         stripe_link = get_stripe_dashboard_url("invoices", invoice_id)
+-        logger.error(
+-            "[STRIPE-WEBHOOK-INVOICE] Invoice voided event for non-existent "
+-            "invoice: %s (%s)",
++        logger.info(
++            "[STRIPE-WEBHOOK-INVOICE] Received voided event for invoice not tracked "
++            "in our system after %d retries: %s (%s)",
++            self.max_retries,
+             invoice_id,
+             stripe_link,
+-            exc_info=sys.exc_info(),
+         )
+         return
+ 
+diff --git a/squarelet/organizations/tests/test_tasks.py b/squarelet/organizations/tests/test_tasks.py
+index f6e9a376..963f0de8 100644
+--- a/squarelet/organizations/tests/test_tasks.py
++++ b/squarelet/organizations/tests/test_tasks.py
+@@ -963,7 +963,7 @@ def test_updates_invoice_status(self, invoice_factory):
+             "created": int(timestamp.timestamp()),
+         }
+ 
+-        tasks.handle_invoice_finalized(invoice_data)
++        tasks.handle_invoice_finalized.apply(args=[invoice_data])
+ 
+         invoice.refresh_from_db()
+         assert invoice.status == "open"
+@@ -988,7 +988,7 @@ def test_updates_invoice_amount(self, invoice_factory):
+             "created": int(timestamp.timestamp()),
+         }
+ 
+-        tasks.handle_invoice_finalized(invoice_data)
++        tasks.handle_invoice_finalized.apply(args=[invoice_data])
+ 
+         invoice.refresh_from_db()
+         assert invoice.amount == 10000
+@@ -1003,13 +1003,13 @@ def test_invoice_not_found(self, mocker):
+         }
+ 
+         mock_logger = mocker.patch("squarelet.organizations.tasks.logger")
++        mocker.patch.object(tasks.handle_invoice_finalized, "max_retries", 0)
+ 
+-        # Should log error and return gracefully
+-        tasks.handle_invoice_finalized(invoice_data)
++        tasks.handle_invoice_finalized.apply(args=[invoice_data])
+ 
+-        mock_logger.error.assert_called_once()
+-        assert "STRIPE-WEBHOOK-INVOICE" in mock_logger.error.call_args[0][0]
+-        assert "non-existent invoice" in mock_logger.error.call_args[0][0]
++        mock_logger.info.assert_called()
++        assert "STRIPE-WEBHOOK-INVOICE" in mock_logger.info.call_args[0][0]
++        assert "not tracked" in mock_logger.info.call_args[0][0]
+ 
+ 
+ class TestHandleInvoicePaymentSucceeded:
+@@ -1035,7 +1035,7 @@ def test_marks_invoice_paid(self, invoice_factory):
+             "created": int(invoice.created_at.timestamp()),
+         }
+ 
+-        tasks.handle_invoice_paid(invoice_data)
++        tasks.handle_invoice_paid.apply(args=[invoice_data])
+ 
+         invoice.refresh_from_db()
+         assert invoice.status == "paid"
+@@ -1061,7 +1061,7 @@ def test_updates_invoice_amount(self, invoice_factory):
+             "created": int(invoice.created_at.timestamp()),
+         }
+ 
+-        tasks.handle_invoice_paid(invoice_data)
++        tasks.handle_invoice_paid.apply(args=[invoice_data])
+ 
+         invoice.refresh_from_db()
+         assert invoice.amount == 1300000
+@@ -1081,7 +1081,7 @@ def test_clears_payment_failed_flag(self, organization_factory, invoice_factory)
+             "created": int(invoice.created_at.timestamp()),
+         }
+ 
+-        tasks.handle_invoice_paid(invoice_data)
++        tasks.handle_invoice_paid.apply(args=[invoice_data])
+ 
+         organization.refresh_from_db()
+         assert organization.payment_failed is False
+@@ -1103,7 +1103,7 @@ def test_does_not_change_flag_if_already_false(
+             "created": int(invoice.created_at.timestamp()),
+         }
+ 
+-        tasks.handle_invoice_paid(invoice_data)
++        tasks.handle_invoice_paid.apply(args=[invoice_data])
+ 
+         organization.refresh_from_db()
+         assert organization.payment_failed is False
+@@ -1114,13 +1114,13 @@ def test_invoice_not_found(self, mocker):
+         invoice_data = {"id": "in_paid_nonexistent"}
+ 
+         mock_logger = mocker.patch("squarelet.organizations.tasks.logger")
++        mocker.patch.object(tasks.handle_invoice_paid, "max_retries", 0)
+ 
+-        # Should log error and return gracefully
+-        tasks.handle_invoice_paid(invoice_data)
++        tasks.handle_invoice_paid.apply(args=[invoice_data])
+ 
+-        mock_logger.error.assert_called_once()
+-        assert "STRIPE-WEBHOOK-INVOICE" in mock_logger.error.call_args[0][0]
+-        assert "non-existent invoice" in mock_logger.error.call_args[0][0]
++        mock_logger.info.assert_called()
++        assert "STRIPE-WEBHOOK-INVOICE" in mock_logger.info.call_args[0][0]
++        assert "not tracked" in mock_logger.info.call_args[0][0]
+ 
+ 
+ class TestHandleInvoiceMarkedUncollectible:
+@@ -1132,7 +1132,7 @@ def test_marks_invoice_uncollectible(self, invoice_factory):
+ 
+         invoice_data = {"id": "in_123"}
+ 
+-        tasks.handle_invoice_marked_uncollectible(invoice_data)
++        tasks.handle_invoice_marked_uncollectible.apply(args=[invoice_data])
+ 
+         invoice.refresh_from_db()
+         assert invoice.status == "uncollectible"
+@@ -1147,7 +1147,7 @@ def test_marks_invoice_void(self, invoice_factory):
+ 
+         invoice_data = {"id": "in_123"}
+ 
+-        tasks.handle_invoice_voided(invoice_data)
++        tasks.handle_invoice_voided.apply(args=[invoice_data])
+ 
+         invoice.refresh_from_db()
+         assert invoice.status == "void"
+@@ -2536,31 +2536,29 @@ class TestHandleInvoiceFinalizedHostedUrl:
+     def test_captures_hosted_invoice_url(self, invoice_factory):
+         """handle_invoice_finalized stores hosted_invoice_url when present"""
+         invoice = invoice_factory(invoice_id="in_hurl", status="draft")
+-        tasks.handle_invoice_finalized(
+-            {
+-                "id": "in_hurl",
+-                "status": "open",
+-                "due_date": None,
+-                "amount_due": 1000,
+-                "created": 1700000000,
+-                "hosted_invoice_url": "https://invoice.stripe.com/i/test",
+-            }
+-        )
++        invoice_data = {
++            "id": "in_hurl",
++            "status": "open",
++            "due_date": None,
++            "amount_due": 1000,
++            "created": 1700000000,
++            "hosted_invoice_url": "https://invoice.stripe.com/i/test",
++        }
++        tasks.handle_invoice_finalized.apply(args=[invoice_data])
+         invoice.refresh_from_db()
+-        assert invoice.hosted_invoice_url == ("https://invoice.stripe.com/i/test")
++        assert invoice.hosted_invoice_url == "https://invoice.stripe.com/i/test"
+ 
+     @pytest.mark.django_db
+     def test_no_hosted_url_leaves_field_empty(self, invoice_factory):
+         """handle_invoice_finalized does not overwrite existing empty field"""
+         invoice = invoice_factory(invoice_id="in_nourl", status="draft")
+-        tasks.handle_invoice_finalized(
+-            {
+-                "id": "in_nourl",
+-                "status": "open",
+-                "due_date": None,
+-                "amount_due": 1000,
+-                "created": 1700000000,
+-            }
+-        )
++        invoice_data = {
++            "id": "in_nourl",
++            "status": "open",
++            "due_date": None,
++            "amount_due": 1000,
++            "created": 1700000000,
++        }
++        tasks.handle_invoice_finalized.apply(args=[invoice_data])
+         invoice.refresh_from_db()
+         assert invoice.hosted_invoice_url == ""

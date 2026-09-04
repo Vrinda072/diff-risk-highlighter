@@ -1,0 +1,111 @@
+diff --git a/pandas/core/groupby/categorical.py b/pandas/core/groupby/categorical.py
+index 0daa6d8f8101b..00e8779d409f9 100644
+--- a/pandas/core/groupby/categorical.py
++++ b/pandas/core/groupby/categorical.py
+@@ -69,8 +69,6 @@ def recode_for_groupby(c: Categorical, sort: bool, observed: bool) -> Categorica
+     # GH:46909: Re-ordering codes faster than using (set|add|reorder)_categories
+     # GH 38140: exclude nan from indexer for categories
+     unique_notnan_codes = unique1d(c.codes[c.codes != -1])
+-    if sort:
+-        unique_notnan_codes = np.sort(unique_notnan_codes)
+     if (num_cat := len(c.categories)) > len(unique_notnan_codes):
+         # GH 13179: All categories need to be present, even if missing from the data
+         missing_codes = np.setdiff1d(
+diff --git a/pandas/core/groupby/groupby.py b/pandas/core/groupby/groupby.py
+index 71613fffebaf9..02823b513fde2 100644
+--- a/pandas/core/groupby/groupby.py
++++ b/pandas/core/groupby/groupby.py
+@@ -5448,11 +5448,8 @@ def pct_change(
+             )
+             return self._python_apply_general(f, self._selected_obj, is_transform=True)
+ 
+-        if fill_method is None:  # GH30463
+-            op = "ffill"
+-        else:
+-            op = fill_method
+-        filled = getattr(self, op)(limit=0)
++        # fill_method is None (validated above); GH30463
++        filled = self.ffill(limit=0)
+         fill_grp = filled.groupby(self._grouper.codes, group_keys=self.group_keys)
+         shifted = fill_grp.shift(periods=periods, freq=freq)
+         return (filled / shifted) - 1
+diff --git a/pandas/core/internals/blocks.py b/pandas/core/internals/blocks.py
+index 6c06e7a54568c..f49702a97b0ad 100644
+--- a/pandas/core/internals/blocks.py
++++ b/pandas/core/internals/blocks.py
+@@ -1456,10 +1456,6 @@ def interpolate(
+         **kwargs,
+     ) -> list[Block]:
+         inplace = validate_bool_kwarg(inplace, "inplace")
+-        # error: Non-overlapping equality check [...]
+-        if method == "asfreq":  # type: ignore[comparison-overlap]
+-            # clean_fill_method used to allow this
+-            missing.clean_fill_method(method)
+ 
+         if not self._can_hold_na:
+             # If there are no NAs, then interpolate is a no-op
+diff --git a/pandas/core/internals/construction.py b/pandas/core/internals/construction.py
+index 81da95bf79ec9..4e26c2f02399b 100644
+--- a/pandas/core/internals/construction.py
++++ b/pandas/core/internals/construction.py
+@@ -975,39 +975,17 @@ def _validate_or_indexify_columns(
+ 
+     Raises
+     ------
+-    1. AssertionError when content is not composed of list of lists, and if
+-        length of columns is not equal to length of content.
+-    2. ValueError when content is list of lists, but length of each sub-list
+-        is not equal
+-    3. ValueError when content is list of lists, but length of sub-list is
+-        not equal to length of content
++    AssertionError
++        When the number of columns does not match the number of arrays in
++        content.
+     """
+     if columns is None:
+         columns = default_index(len(content))
+-    else:
+-        # Add mask for data which is composed of list of lists
+-        is_mi_list = isinstance(columns, list) and all(
+-            isinstance(col, list) for col in columns
++    elif len(columns) != len(content):  # pragma: no cover
++        # caller's responsibility to check for this...
++        raise AssertionError(
++            f"{len(columns)} columns passed, passed data had {len(content)} columns"
+         )
+-
+-        if not is_mi_list and len(columns) != len(content):  # pragma: no cover
+-            # caller's responsibility to check for this...
+-            raise AssertionError(
+-                f"{len(columns)} columns passed, passed data had {len(content)} columns"
+-            )
+-        if is_mi_list:
+-            # check if nested list column, length of each sub-list should be equal
+-            if len({len(col) for col in columns}) > 1:
+-                raise ValueError(
+-                    "Length of columns passed for MultiIndex columns is different"
+-                )
+-
+-            # if columns is not empty and length of sublist is not equal to content
+-            if columns and len(columns[0]) != len(content):
+-                raise ValueError(
+-                    f"{len(columns[0])} columns passed, passed data had "
+-                    f"{len(content)} columns"
+-                )
+     return columns
+ 
+ 
+diff --git a/pandas/core/internals/managers.py b/pandas/core/internals/managers.py
+index a9b88d8ce35b7..2dc1031254ff6 100644
+--- a/pandas/core/internals/managers.py
++++ b/pandas/core/internals/managers.py
+@@ -2301,9 +2301,6 @@ def _equal_values(self, other: Self) -> bool:
+         Used in .equals defined in base class. Only check the column values
+         assuming shape and indexes have already been checked.
+         """
+-        # For SingleBlockManager (i.e.Series)
+-        if other.ndim != 1:
+-            return False
+         left = self.blocks[0].values
+         right = other.blocks[0].values
+         return array_equals(left, right)

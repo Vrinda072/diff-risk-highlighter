@@ -1,0 +1,164 @@
+diff --git a/internal/cli/cli_new_test.go b/internal/cli/cli_new_test.go
+index 68a91ac..a4ffea2 100644
+--- a/internal/cli/cli_new_test.go
++++ b/internal/cli/cli_new_test.go
+@@ -164,7 +164,7 @@ func TestCLI_NewCreatesApp(t *testing.T) {
+ 	for _, needle := range []string{
+ 		`import { mount } from 'svelte'`,
+ 		`mount(App, { target: el, props })`,
+-		`xsrfCookieName: 'cais_csrf'`,
++		`xsrfCookieName: import.meta.env.PROD ? '__Host-cais_csrf' : 'cais_csrf'`,
+ 		`xsrfHeaderName: 'X-CSRF-Token'`,
+ 	} {
+ 		if !strings.Contains(mainBody, needle) {
+diff --git a/internal/cli/tpl_scaffold_inertia.go b/internal/cli/tpl_scaffold_inertia.go
+index 8b760be..3a4c3d7 100644
+--- a/internal/cli/tpl_scaffold_inertia.go
++++ b/internal/cli/tpl_scaffold_inertia.go
+@@ -34,8 +34,10 @@ createInertiaApp({
+     mount(App, { target: el, props })
+   },
+   // Match pkg/cais/csrf double-submit cookie (not Laravel XSRF defaults).
++  // Production sets Secure cookies, which use the __Host- prefix (#173);
++  // Vite's PROD flag tracks ENV=production, so pick the matching name.
+   http: {
+-    xsrfCookieName: 'cais_csrf',
++    xsrfCookieName: import.meta.env.PROD ? '__Host-cais_csrf' : 'cais_csrf',
+     xsrfHeaderName: 'X-CSRF-Token',
+   },
+ })
+diff --git a/pkg/cais/csrf/csrf.go b/pkg/cais/csrf/csrf.go
+index 9b671e5..2befe64 100644
+--- a/pkg/cais/csrf/csrf.go
++++ b/pkg/cais/csrf/csrf.go
+@@ -18,8 +18,22 @@ const (
+ 	FormField    = "csrf_token"
+ 	MetaTag      = "csrf-token"
+ 	CookieMaxAge = 86400 * 7
++
++	// SecureCookieName carries the __Host- prefix in production (#173): browsers
++	// then reject any sibling-subdomain attempt to set it on the parent domain,
++	// blocking CSRF cookie fixation. __Host- requires Secure, Path=/, no Domain.
++	SecureCookieName = "__Host-cais_csrf"
+ )
+ 
++// cookieForRequest returns the active CSRF cookie, preferring the secure name.
++// Plain-name fallback also makes rotation from older deploys transparent.
++func cookieForRequest(r *http.Request) (*http.Cookie, error) {
++	if c, err := r.Cookie(SecureCookieName); err == nil && c.Value != "" {
++		return c, nil
++	}
++	return r.Cookie(CookieName)
++}
++
+ type ctxKey struct{}
+ 
+ // GenerateToken returns a random URL-safe CSRF token.
+@@ -41,7 +55,7 @@ func SubmittedToken(r *http.Request) string {
+ 
+ // Valid reports whether the submitted token matches the cookie (double-submit).
+ func Valid(r *http.Request) bool {
+-	cookie, err := r.Cookie(CookieName)
++	cookie, err := cookieForRequest(r)
+ 	if err != nil || cookie.Value == "" {
+ 		return false
+ 	}
+@@ -54,7 +68,7 @@ func Valid(r *http.Request) bool {
+ 
+ // EnsureToken sets the CSRF cookie when missing and returns the active token.
+ func EnsureToken(w http.ResponseWriter, r *http.Request, secure bool) (string, error) {
+-	if cookie, err := r.Cookie(CookieName); err == nil && cookie.Value != "" {
++	if cookie, err := cookieForRequest(r); err == nil && cookie.Value != "" {
+ 		return cookie.Value, nil
+ 	}
+ 
+@@ -63,8 +77,12 @@ func EnsureToken(w http.ResponseWriter, r *http.Request, secure bool) (string, e
+ 		return "", err
+ 	}
+ 
++	name := CookieName
++	if secure {
++		name = SecureCookieName
++	}
+ 	http.SetCookie(w, &http.Cookie{
+-		Name:     CookieName,
++		Name:     name,
+ 		Value:    token,
+ 		Path:     "/",
+ 		MaxAge:   CookieMaxAge,
+@@ -85,7 +103,7 @@ func TokenFromRequest(r *http.Request) string {
+ 	if token, ok := r.Context().Value(ctxKey{}).(string); ok && token != "" {
+ 		return token
+ 	}
+-	if cookie, err := r.Cookie(CookieName); err == nil {
++	if cookie, err := cookieForRequest(r); err == nil {
+ 		return cookie.Value
+ 	}
+ 	return ""
+diff --git a/pkg/cais/csrf/csrf_test.go b/pkg/cais/csrf/csrf_test.go
+index d5fd482..b375645 100644
+--- a/pkg/cais/csrf/csrf_test.go
++++ b/pkg/cais/csrf/csrf_test.go
+@@ -124,6 +124,62 @@ func TestEnsureToken_setsSecureInProduction(t *testing.T) {
+ 	}
+ }
+ 
++// #173: with secure cookies the CSRF cookie name gets the __Host- prefix so a
++// sibling subdomain cannot fixate a known cais_csrf value on the parent domain.
++// __Host- requires Secure, Path=/ and no Domain — exactly what EnsureToken sets.
++func TestEnsureToken_secureUsesHostPrefixedName(t *testing.T) {
++	rr := httptest.NewRecorder()
++	req := httptest.NewRequest(http.MethodGet, "/", nil)
++
++	token, err := EnsureToken(rr, req, true)
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	var hostCookie *http.Cookie
++	for _, c := range rr.Result().Cookies() {
++		if c.Name == CookieName {
++			t.Error("plain cais_csrf must not be set when secure")
++		}
++		if c.Name == SecureCookieName {
++			hostCookie = c
++		}
++	}
++	if hostCookie == nil {
++		t.Fatalf("missing %s cookie: %+v", SecureCookieName, rr.Result().Cookies())
++	}
++	if !hostCookie.Secure || hostCookie.Path != "/" || hostCookie.Domain != "" {
++		t.Errorf("__Host- cookie violates prefix rules: %+v", hostCookie)
++	}
++
++	req2 := httptest.NewRequest(http.MethodPost, "/contact", nil)
++	req2.AddCookie(&http.Cookie{Name: SecureCookieName, Value: token})
++	req2.Header.Set(HeaderName, token)
++	if !Valid(req2) {
++		t.Error("Valid rejected double-submit via __Host- cookie")
++	}
++	if got := TokenFromRequest(req2); got != token {
++		t.Errorf("TokenFromRequest = %q, want %q", got, token)
++	}
++}
++
++func TestEnsureToken_insecureKeepsPlainName(t *testing.T) {
++	rr := httptest.NewRecorder()
++	req := httptest.NewRequest(http.MethodGet, "/", nil)
++
++	if _, err := EnsureToken(rr, req, false); err != nil {
++		t.Fatal(err)
++	}
++	for _, c := range rr.Result().Cookies() {
++		if c.Name == SecureCookieName {
++			t.Error("__Host- cookie must not be set without Secure")
++		}
++	}
++	if len(rr.Result().Cookies()) == 0 {
++		t.Fatal("no csrf cookie set")
++	}
++}
++
+ func TestFieldHTML_escapesValue(t *testing.T) {
+ 	got := FieldHTML(`"><script>`)
+ 	if strings.Contains(got, "<script>") {

@@ -1,0 +1,9 @@
+{
+  "name": "diff-risk-highlighter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension that flags risky vs. safe-to-skim diff hunks on GitHub PR pages.",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

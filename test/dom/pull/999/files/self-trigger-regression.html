@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Diff Risk Highlighter — self-trigger regression check</title>
+<style>
+  body { font-family: monospace; font-size: 13px; padding: 16px; }
+  #result { white-space: pre; padding: 12px; border-radius: 6px; }
+  #result.pass { background: #dafbe1; }
+  #result.fail { background: #ffebe9; }
+  #files { display: none; }
+</style>
+</head>
+<body>
+<h3>Self-trigger regression check</h3>
+<p>
+  Loads the real <code>src/risk-engine.js</code> + <code>src/content.js</code>
+  (not copies) against a small synthetic diff at a URL path matching
+  <code>/pull/&lt;n&gt;/files</code>, so the content script's own page-detection
+  gate passes and it runs for real. Regression this guards against: a bug
+  where the extension's own DOM writes (badges, the summary bar) retriggered
+  its own MutationObserver, running the scan forever even on an idle page —
+  found by instrumenting a live GitHub PR and watching the scan counter climb
+  with zero user interaction. Fixed by disconnecting the observer for the
+  duration of the script's own synchronous writes.
+</p>
+<div id="result">running…</div>
+
+<div class="pr-toolbar" style="height: 60px;"></div>
+<div id="files" class="diff-view js-diff-container"></div>
+
+<script>
+  // A couple of files with a real risk signal each, so processPage() does
+  // its full job (extraction + engine + marking + summary bar), not a
+  // trivial no-op.
+  function buildFile(path, hunkHtml) {
+    return `
+      <div class="file" data-tagsearch-path="${path}" data-file-type=".java" data-file-deleted="false">
+        <div class="file-header" data-path="${path}"></div>
+        <table class="diff-table"><tbody>${hunkHtml}</tbody></table>
+      </div>
+    `;
+  }
+  function hunkRow(marker, cls, text) {
+    return `<tr><td class="blob-num blob-num-${cls}"></td><td class="blob-num"></td><td class="blob-code blob-code-${cls}"><span class="blob-code-inner blob-code-marker" data-code-marker="${marker}">${text}</span></td></tr>`;
+  }
+  const boundary = (n) => `<tr><td class="blob-num blob-num-expandable" colspan="2"></td><td class="blob-code blob-code-inner blob-code-hunk">@@ -${n},1 +${n},1 @@</td></tr>`;
+
+  document.getElementById('files').innerHTML =
+    buildFile('src/A.java', boundary(1) +
+      hunkRow('-', 'deletion', 'try {') +
+      hunkRow('-', 'deletion', 'riskyCall();') +
+      hunkRow('-', 'deletion', '} catch (Exception e) {}')) +
+    buildFile('src/B.java', boundary(1) +
+      hunkRow('+', 'addition', 'String q = "SELECT * FROM users WHERE id = " + id;'));
+</script>
+
+<script>
+  // Instrument BEFORE content.js attaches its observer, so every callback
+  // (content.js's own, or any other) is counted.
+  window.__callbackCount = 0;
+  const OrigMO = window.MutationObserver;
+  window.MutationObserver = class extends OrigMO {
+    constructor(cb) {
+      super((...args) => { window.__callbackCount++; cb(...args); });
+    }
+  };
+</script>
+
+<script src="/src/risk-engine.js"></script>
+<script src="/src/content.js"></script>
+
+<script>
+  // Sample the callback count at two points well after the initial scan
+  // should have settled (content.js debounces at 150ms). If the fix
+  // regresses, this gap is nonzero and grows without bound the longer you
+  // wait; with the fix it's zero.
+  setTimeout(() => {
+    const early = window.__callbackCount;
+    setTimeout(() => {
+      const late = window.__callbackCount;
+      const badge = document.querySelector('.driskh-badge');
+      const el = document.getElementById('result');
+      const growth = late - early;
+      const ok = growth === 0 && !!badge;
+      el.className = ok ? 'pass' : 'fail';
+      el.textContent =
+        `MutationObserver callback count at t=800ms: ${early}\n` +
+        `MutationObserver callback count at t=2500ms: ${late}\n` +
+        `Growth over 1.7s of total idle time: ${growth} (must be 0)\n` +
+        `Badge rendered (sanity check the real scan ran): ${!!badge}\n\n` +
+        (ok ? 'PASS' : 'FAIL — the extension is retriggering its own observer');
+      window.__selfTriggerTestResult = { early, late, growth, badgeFound: !!badge, pass: ok };
+    }, 1700);
+  }, 800);
+</script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+diff --git a/src/main.go b/src/main.go
+index 9d18ea0..43c6bcb 100644
+--- a/src/main.go
++++ b/src/main.go
+@@ -233,7 +233,12 @@ func getFileHandler(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
+-	// Serve the file.
++	// Force opaque downloads so http.ServeFile cannot content-sniff attacker-controlled
++	// bytes into an active browser content type.
++	w.Header().Set("Content-Type", "application/octet-stream")
++	w.Header().Set("Content-Disposition", "attachment")
++	w.Header().Set("X-Content-Type-Options", "nosniff")
++	w.Header().Set("Content-Security-Policy", "default-src 'none';")
+ 	http.ServeFile(w, r, filePath)
+ }
+ 
+diff --git a/src/main_test.go b/src/main_test.go
+new file mode 100644
+index 0000000..243b349
+--- /dev/null
++++ b/src/main_test.go
+@@ -0,0 +1,46 @@
++package main
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestGetFileHandlerForcesOpaqueDownload(t *testing.T) {
++	oldStorageDirectory := storageDirectory
++	storageDirectory = t.TempDir()
++	t.Cleanup(func() {
++		storageDirectory = oldStorageDirectory
++	})
++
++	const filename = "019f329d-b729-7b14-9e40-7a24b9849531.1783264224"
++	const payload = `<!doctype html><script>document.title="xss"</script>`
++	if err := os.WriteFile(filepath.Join(storageDirectory, filename), []byte(payload), 0600); err != nil {
++		t.Fatal(err)
++	}
++
++	req := httptest.NewRequest(http.MethodGet, "/api/v1/part/"+filename, nil)
++	res := httptest.NewRecorder()
++	getFileHandler(res, req)
++
++	if res.Code != http.StatusOK {
++		t.Fatalf("status = %d, want %d", res.Code, http.StatusOK)
++	}
++	if got := res.Header().Get("Content-Type"); got != "application/octet-stream" {
++		t.Errorf("Content-Type = %q, want application/octet-stream", got)
++	}
++	if got := res.Header().Get("Content-Disposition"); got != "attachment" {
++		t.Errorf("Content-Disposition = %q, want attachment", got)
++	}
++	if got := res.Header().Get("X-Content-Type-Options"); got != "nosniff" {
++		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
++	}
++	if got := res.Header().Get("Content-Security-Policy"); got != "default-src 'none';" {
++		t.Errorf("Content-Security-Policy = %q, want default-src 'none';", got)
++	}
++	if got := res.Body.String(); got != payload {
++		t.Errorf("body = %q, want %q", got, payload)
++	}
++}

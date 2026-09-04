@@ -1,0 +1,297 @@
+diff --git a/django/db/models/__init__.py b/django/db/models/__init__.py
+index c5803929c55f..5149bab736ce 100644
+--- a/django/db/models/__init__.py
++++ b/django/db/models/__init__.py
+@@ -40,7 +40,7 @@
+     WindowFrame,
+     WindowFrameExclusion,
+ )
+-from django.db.models.fetch_modes import FETCH_ONE, FETCH_PEERS, RAISE
++from django.db.models.fetch_modes import FETCH_ONE, FETCH_PEERS, FETCH_RAISE
+ from django.db.models.fields import *  # NOQA
+ from django.db.models.fields import __all__ as fields_all
+ from django.db.models.fields.composite import CompositePrimaryKey
+@@ -115,7 +115,7 @@
+     "OrderWrt",
+     "FETCH_ONE",
+     "FETCH_PEERS",
+-    "RAISE",
++    "FETCH_RAISE",
+     "Lookup",
+     "Transform",
+     "Manager",
+diff --git a/django/db/models/fetch_modes.py b/django/db/models/fetch_modes.py
+index 2b5e6aa212dd..1c8583b15f89 100644
+--- a/django/db/models/fetch_modes.py
++++ b/django/db/models/fetch_modes.py
+@@ -46,7 +46,7 @@ def __reduce__(self):
+ FETCH_PEERS = FetchPeers()
+ 
+ 
+-class Raise(FetchMode):
++class FetchRaise(FetchMode):
+     __slots__ = ()
+ 
+     def fetch(self, fetcher, instance):
+@@ -55,7 +55,7 @@ def fetch(self, fetcher, instance):
+         raise FieldFetchBlocked(f"Fetching of {klass}.{field_name} blocked.") from None
+ 
+     def __reduce__(self):
+-        return "RAISE"
++        return "FETCH_RAISE"
+ 
+ 
+-RAISE = Raise()
++FETCH_RAISE = FetchRaise()
+diff --git a/docs/ref/exceptions.txt b/docs/ref/exceptions.txt
+index 1f3e84a7f558..d767b0017027 100644
+--- a/docs/ref/exceptions.txt
++++ b/docs/ref/exceptions.txt
+@@ -171,7 +171,7 @@ Django core exception classes are defined in ``django.core.exceptions``.
+ .. exception:: FieldFetchBlocked
+ 
+     Raised when a field would be fetched on-demand and the
+-    :attr:`~django.db.models.RAISE` fetch mode is active.
++    :attr:`~django.db.models.FETCH_RAISE` fetch mode is active.
+ 
+ ``ValidationError``
+ -------------------
+diff --git a/docs/releases/6.1.txt b/docs/releases/6.1.txt
+index 4316a00dba04..c2f19c3093db 100644
+--- a/docs/releases/6.1.txt
++++ b/docs/releases/6.1.txt
+@@ -48,7 +48,7 @@ Django provides three fetch modes:
+    cases of the "N+1 queries problem" to two queries without any work to
+    maintain a list of fields to prefetch.
+ 
+-3. ``RAISE`` raises a :exc:`~django.core.exceptions.FieldFetchBlocked`
++3. ``FETCH_RAISE`` raises a :exc:`~django.core.exceptions.FieldFetchBlocked`
+    exception.
+ 
+    This mode can prevent unintentional queries in performance-critical
+diff --git a/docs/topics/db/fetch-modes.txt b/docs/topics/db/fetch-modes.txt
+index bcd9d33b9583..36afb3aa13bf 100644
+--- a/docs/topics/db/fetch-modes.txt
++++ b/docs/topics/db/fetch-modes.txt
+@@ -104,12 +104,12 @@ much effort.
+ The "peer" instances are tracked in a list of weak references, to avoid
+ memory leaks where some peer instances are discarded.
+ 
+-.. attribute:: RAISE
++.. attribute:: FETCH_RAISE
+ 
+ Raises a :exc:`~django.core.exceptions.FieldFetchBlocked` exception.
+ 
+-Using ``RAISE`` for the above example would raise an exception at the access of
+-``book.author``, like:
++Using ``FETCH_RAISE`` for the above example would raise an exception at the
++access of ``book.author``, like:
+ 
+ .. code-block:: python
+ 
+diff --git a/tests/basic/tests.py b/tests/basic/tests.py
+index d8f95b43aac7..a6609f0f30d8 100644
+--- a/tests/basic/tests.py
++++ b/tests/basic/tests.py
+@@ -1104,19 +1104,19 @@ def test_refresh_copies_fetch_mode_from_plucked_instance(self):
+         a = Article.objects.create(pub_date=datetime.now())
+         fa = FeaturedArticle.objects.fetch_mode(models.FETCH_PEERS).create(article=a)
+ 
+-        from_queryset = FeaturedArticle.objects.fetch_mode(models.RAISE).select_related(
+-            "article"
+-        )
++        from_queryset = FeaturedArticle.objects.fetch_mode(
++            models.FETCH_RAISE
++        ).select_related("article")
+         fa.refresh_from_db(from_queryset=from_queryset)
+         self.assertEqual(fa._state.fetch_mode, models.FETCH_PEERS)
+-        self.assertEqual(fa.article._state.fetch_mode, models.RAISE)
++        self.assertEqual(fa.article._state.fetch_mode, models.FETCH_RAISE)
+ 
+     def test_refresh_ignores_fetch_mode_if_no_instance_plucked(self):
+         a = Article.objects.create(pub_date=datetime.now())
+         fa = FeaturedArticle.objects.fetch_mode(models.FETCH_PEERS).create(article=a)
+ 
+         # This queryset's fetch mode is not used because no fields are plucked.
+-        from_queryset = FeaturedArticle.objects.fetch_mode(models.RAISE)
++        from_queryset = FeaturedArticle.objects.fetch_mode(models.FETCH_RAISE)
+         fa.refresh_from_db(from_queryset=from_queryset)
+         self.assertEqual(fa._state.fetch_mode, models.FETCH_PEERS)
+         self.assertEqual(fa.article._state.fetch_mode, models.FETCH_PEERS)
+diff --git a/tests/defer/tests.py b/tests/defer/tests.py
+index c1fdfa772896..8aaa70fc19c2 100644
+--- a/tests/defer/tests.py
++++ b/tests/defer/tests.py
+@@ -1,5 +1,5 @@
+ from django.core.exceptions import FieldDoesNotExist, FieldError, FieldFetchBlocked
+-from django.db.models import FETCH_PEERS, RAISE
++from django.db.models import FETCH_PEERS, FETCH_RAISE
+ from django.test import SimpleTestCase, TestCase
+ from django.test.utils import ignore_warnings
+ from django.utils.deprecation import RemovedInDjango70Warning
+@@ -241,7 +241,7 @@ def test_only_fk_fetch_mode_fetch_peers(self):
+             self.assertEqual(p2.related, self.s1)
+ 
+     def test_only_fetch_mode_raise(self):
+-        p1 = Primary.objects.fetch_mode(RAISE).only("name").get(name="p1")
++        p1 = Primary.objects.fetch_mode(FETCH_RAISE).only("name").get(name="p1")
+         msg = "Fetching of Primary.value blocked."
+         with self.assertRaisesMessage(FieldFetchBlocked, msg) as cm:
+             p1.value
+@@ -249,7 +249,7 @@ def test_only_fetch_mode_raise(self):
+         self.assertTrue(cm.exception.__suppress_context__)
+ 
+     def test_defer_fetch_mode_raise(self):
+-        p1 = Primary.objects.fetch_mode(RAISE).defer("value").get(name="p1")
++        p1 = Primary.objects.fetch_mode(FETCH_RAISE).defer("value").get(name="p1")
+         msg = "Fetching of Primary.value blocked."
+         with self.assertRaisesMessage(FieldFetchBlocked, msg) as cm:
+             p1.value
+diff --git a/tests/generic_relations/tests.py b/tests/generic_relations/tests.py
+index dceb8f4bae72..8d07d1e63cb2 100644
+--- a/tests/generic_relations/tests.py
++++ b/tests/generic_relations/tests.py
+@@ -2,7 +2,7 @@
+ from django.contrib.contenttypes.prefetch import GenericPrefetch
+ from django.core.exceptions import FieldError, FieldFetchBlocked
+ from django.db.models import Q, prefetch_related_objects
+-from django.db.models.fetch_modes import FETCH_PEERS, RAISE
++from django.db.models.fetch_modes import FETCH_PEERS, FETCH_RAISE
+ from django.test import SimpleTestCase, TestCase, skipUnlessDBFeature
+ 
+ from .models import (
+@@ -813,7 +813,7 @@ def test_fetch_mode_fetch_peers(self):
+             self.assertEqual(quartz_tag.content_object, self.quartz)
+ 
+     def test_fetch_mode_raise(self):
+-        tag = TaggedItem.objects.fetch_mode(RAISE).get(tag="yellow")
++        tag = TaggedItem.objects.fetch_mode(FETCH_RAISE).get(tag="yellow")
+         msg = "Fetching of TaggedItem.content_object blocked."
+         with self.assertRaisesMessage(FieldFetchBlocked, msg) as cm:
+             tag.content_object
+diff --git a/tests/many_to_one/tests.py b/tests/many_to_one/tests.py
+index 3e665979ee33..e0def73db016 100644
+--- a/tests/many_to_one/tests.py
++++ b/tests/many_to_one/tests.py
+@@ -7,7 +7,7 @@
+     MultipleObjectsReturned,
+ )
+ from django.db import IntegrityError, models, transaction
+-from django.db.models import FETCH_PEERS, RAISE
++from django.db.models import FETCH_PEERS, FETCH_RAISE
+ from django.test import TestCase
+ from django.utils.translation import gettext_lazy
+ 
+@@ -947,7 +947,7 @@ def test_fetch_mode_fetch_peers_forward(self):
+             a2.reporter
+ 
+     def test_fetch_mode_raise_forward(self):
+-        a = Article.objects.fetch_mode(RAISE).get(pk=self.a.pk)
++        a = Article.objects.fetch_mode(FETCH_RAISE).get(pk=self.a.pk)
+         msg = "Fetching of Article.reporter blocked."
+         with self.assertRaisesMessage(FieldFetchBlocked, msg) as cm:
+             a.reporter
+diff --git a/tests/one_to_one/tests.py b/tests/one_to_one/tests.py
+index 39f24d6b1009..96b3dac9527e 100644
+--- a/tests/one_to_one/tests.py
++++ b/tests/one_to_one/tests.py
+@@ -1,6 +1,6 @@
+ from django.core.exceptions import FieldFetchBlocked
+ from django.db import IntegrityError, connection, transaction
+-from django.db.models import FETCH_PEERS, RAISE
++from django.db.models import FETCH_PEERS, FETCH_RAISE
+ from django.test import TestCase
+ 
+ from .models import (
+@@ -643,7 +643,7 @@ def test_fetch_mode_fetch_peers_reverse(self):
+             p2.restaurant
+ 
+     def test_fetch_mode_raise_forward(self):
+-        r = Restaurant.objects.fetch_mode(RAISE).get(pk=self.r1.pk)
++        r = Restaurant.objects.fetch_mode(FETCH_RAISE).get(pk=self.r1.pk)
+         msg = "Fetching of Restaurant.place blocked."
+         with self.assertRaisesMessage(FieldFetchBlocked, msg) as cm:
+             r.place
+@@ -651,7 +651,7 @@ def test_fetch_mode_raise_forward(self):
+         self.assertTrue(cm.exception.__suppress_context__)
+ 
+     def test_fetch_mode_raise_reverse(self):
+-        p = Place.objects.fetch_mode(RAISE).get(pk=self.p1.pk)
++        p = Place.objects.fetch_mode(FETCH_RAISE).get(pk=self.p1.pk)
+         msg = "Fetching of Place.restaurant blocked."
+         with self.assertRaisesMessage(FieldFetchBlocked, msg) as cm:
+             p.restaurant
+diff --git a/tests/prefetch_related/tests.py b/tests/prefetch_related/tests.py
+index bb6417b8aecd..bda187a92a0a 100644
+--- a/tests/prefetch_related/tests.py
++++ b/tests/prefetch_related/tests.py
+@@ -10,7 +10,7 @@
+     QuerySet,
+     prefetch_related_objects,
+ )
+-from django.db.models.fetch_modes import RAISE
++from django.db.models.fetch_modes import FETCH_RAISE
+ from django.db.models.query import get_prefetcher
+ from django.db.models.sql import Query
+ from django.test import (
+@@ -137,7 +137,9 @@ def test_fetch_mode_copied_fetching_many(self):
+         )
+ 
+     def test_fetch_mode_raise(self):
+-        authors = list(Author.objects.fetch_mode(RAISE).prefetch_related("first_book"))
++        authors = list(
++            Author.objects.fetch_mode(FETCH_RAISE).prefetch_related("first_book")
++        )
+         authors[0].first_book  # No exception, already loaded
+ 
+     def test_foreignkey_reverse(self):
+diff --git a/tests/queryset_pickle/tests.py b/tests/queryset_pickle/tests.py
+index e1e4c9a2f877..f8f3b65c6d7f 100644
+--- a/tests/queryset_pickle/tests.py
++++ b/tests/queryset_pickle/tests.py
+@@ -372,11 +372,11 @@ def test_fetch_mode_fetch_peers(self):
+         self.assertEqual(restored[0]._state.peers, ())
+ 
+     def test_fetch_mode_raise(self):
+-        objs = list(Happening.objects.fetch_mode(models.RAISE))
+-        self.assertEqual(objs[0]._state.fetch_mode, models.RAISE)
++        objs = list(Happening.objects.fetch_mode(models.FETCH_RAISE))
++        self.assertEqual(objs[0]._state.fetch_mode, models.FETCH_RAISE)
+ 
+         restored = pickle.loads(pickle.dumps(objs))
+-        self.assertIs(restored[0]._state.fetch_mode, models.RAISE)
++        self.assertIs(restored[0]._state.fetch_mode, models.FETCH_RAISE)
+ 
+ 
+ class InLookupTests(TestCase):
+diff --git a/tests/raw_query/tests.py b/tests/raw_query/tests.py
+index f66afbf28b73..f5485e733f6b 100644
+--- a/tests/raw_query/tests.py
++++ b/tests/raw_query/tests.py
+@@ -2,7 +2,7 @@
+ from decimal import Decimal
+ 
+ from django.core.exceptions import FieldDoesNotExist, FieldFetchBlocked
+-from django.db.models import FETCH_PEERS, RAISE
++from django.db.models import FETCH_PEERS, FETCH_RAISE
+ from django.db.models.query import RawQuerySet
+ from django.test import TestCase, skipUnlessDBFeature
+ 
+@@ -168,7 +168,7 @@ def test_fk_fetch_mode_peers(self):
+ 
+     def test_fk_fetch_mode_raise(self):
+         query = "SELECT * FROM raw_query_book"
+-        books = list(Book.objects.fetch_mode(RAISE).raw(query))
++        books = list(Book.objects.fetch_mode(FETCH_RAISE).raw(query))
+         msg = "Fetching of Book.author blocked."
+         with self.assertRaisesMessage(FieldFetchBlocked, msg) as cm:
+             books[0].author
+@@ -320,7 +320,7 @@ def test_missing_fields_fetch_mode_peers(self):
+ 
+     def test_missing_fields_fetch_mode_raise(self):
+         query = "SELECT id, first_name, dob FROM raw_query_author"
+-        authors = list(Author.objects.fetch_mode(RAISE).raw(query))
++        authors = list(Author.objects.fetch_mode(FETCH_RAISE).raw(query))
+         msg = "Fetching of Author.last_name blocked."
+         with self.assertRaisesMessage(FieldFetchBlocked, msg) as cm:
+             authors[0].last_name
