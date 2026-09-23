@@ -203,6 +203,98 @@ columns to span now). Verified by running the real extraction logic
 against `?diff=split` on the SQL-injection fixture PR and getting the
 identical 4-hunk / 1-high result as unified view.
 
+## CRITICAL, CONFIRMED 2026-09-23: GitHub has replaced this entire DOM
+
+Re-verified live (both `virtual-imaging-platform/VIP-portal#698`, a small
+fixture repo, and `psf/requests#4052`, a large well-known one — so this
+isn't an account/repo-specific flag) while doing an end-to-end "run it"
+check of the shipped extension: **every selector this document describes
+above is now gone.** GitHub has rolled out a full React rewrite of the
+Files Changed tab, called internally "the upgraded Files Changed
+experience" (a dismissible banner announces it, linking
+`https://gh.io/new-files-changed-changelog`). This is a materially
+different situation from the "not yet verified" gaps below — those were
+hypothetical; this is confirmed to break the extension **completely, on
+every PR, today.**
+
+What changed:
+
+- **URL**: `/pull/<n>/files` now client-redirects to `/pull/<n>/changes`.
+  The content script's page-detection regex (`/\/pull\/\d+\/files(\/|$)/`)
+  does not match the new path, so the script's own top-level gate fails
+  even before it would look for any DOM.
+- **Everything the extension selects on is gone**: `.file[data-tagsearch-path]`,
+  `table.diff-table`, `td.blob-code-hunk`, `td.blob-code-addition`,
+  `td.blob-code-deletion`, `#files` — all zero matches on the new page.
+  The diff content is still server-rendered into the initial HTML (as a
+  JSON payload inside a `<script data-target="react-app.embeddedData">`
+  tag), but the actual *visible* DOM a content script would read is a
+  completely different, deeply-nested Primer/React table.
+
+What the new DOM actually looks like (captured live from
+`psf/requests#4052`'s `utils.py` hunk, the same one used as the
+`requests_regression.diff` fixture):
+
+```html
+<table aria-label="Diff for: requests/utils.py" role="grid" class="... DiffLines-module__tableLayoutFixed__Ui4OU">
+  <tbody>
+    <tr class="diff-line-row">
+      <td class="diff-hunk-cell focusable-grid-cell left-side" colspan="4"
+          data-line-anchor="diff-<sha>R683" role="gridcell">
+        <div class="d-flex flex-row"><code class="diff-text-cell hunk">
+          <div class="diff-text-inner color-fg-muted">@@ -684,7 +684,7 @@ def should_bypass_proxies(url, no_proxy):</div>
+        </code></div>
+      </td>
+    </tr>
+    <!-- unchanged line: one line-number cell + one content cell -->
+    <tr class="diff-line-row" data-row-selected="false">
+      <td class="focusable-grid-cell new-diff-line-number left-side diff-line-number-neutral"
+          data-diff-side="left" data-line-number="684" role="gridcell">684</td>
+      <!-- ...content cell follows... -->
+    </tr>
+    <!-- a changed line pairs old+new in ONE row, not two: -->
+    <tr class="diff-line-row" data-row-selected="false">
+      <td class="focusable-grid-cell new-diff-line-number empty-diff-line left-side"
+          style="background-color:var(--diffBlob-additionNum-bgColor, ...)"></td>
+      <td class="focusable-grid-cell new-diff-line-number left-side" data-diff-side="right"
+          data-diff-line-key="b:687-l:687-r:687" ...>687</td>
+      <!-- ...the added line's content cell follows... -->
+    </tr>
+  </tbody>
+</table>
+```
+
+Usable anchors for a future rewrite (not yet implemented or tested
+against, so treat as a starting point, not verified selectors):
+
+- **File path**: `table[role="grid"]`'s `aria-label` attribute is
+  `"Diff for: <path>"` directly — actually more reliable than the old
+  `data-tagsearch-path` scrape.
+- **Hunk boundary**: `td.diff-hunk-cell` (replaces `td.blob-code-hunk`).
+- **Content rows**: `tr.diff-line-row`, each containing one or two
+  `td[role="gridcell"][data-diff-side="left"|"right"]` cells — a pure
+  addition or deletion row has an `empty-diff-line` cell on the side
+  with no content, and a same-line modification packs old+new into one
+  row instead of two, which changes how a hunk's `addedLines`/
+  `removedLines` need to be walked.
+- **Caution**: the table's own class (`DiffLines-module__tableLayoutFixed__Ui4OU`)
+  is a webpack CSS-module hash — GitHub regenerates these on every
+  frontend deploy, so it is not a stable selector even in the short
+  term, unlike the old hand-authored `blob-code-*` classes. Anything
+  built against this DOM should anchor on the semantic/ARIA attributes
+  (`role`, `data-diff-side`, `data-line-anchor`, `aria-label`) and the
+  few plain classes (`diff-line-row`, `diff-hunk-cell`), not the hashed
+  module classes.
+
+This was not adapted for in this pass — reverse-engineering an
+undocumented, actively-changing React grid accurately enough to keep the
+heuristics' hunk boundaries and added/removed-line attribution correct
+is real, separate engineering work, not a quick selector swap, and
+shipping a half-verified version of it would undermine the one thing
+this project is supposed to demonstrate (careful, calibrated
+correctness). Treat this as the top item in a "v1.1: new Files Changed
+UI" pass, not folded silently into v1.
+
 ## Known gaps / not yet verified
 
 - **Binary files, renames, mode-only changes**: not captured in this

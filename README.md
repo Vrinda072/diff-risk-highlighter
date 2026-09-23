@@ -5,9 +5,16 @@ and flags which diff hunks are actually risky to review carefully versus
 which are safe to skim — using static heuristics, no LLM required.
 
 > **Status:** all 5 planned milestones are built (scaffold, risk engine,
-> DOM integration, polish/scale, optional LLM explanations). See
-> [Known Limitations / Future Work](#known-limitations--future-work) for
-> what's still rough around the edges.
+> DOM integration, polish/scale, optional LLM explanations) and verified
+> against GitHub's DOM as of 2026-08-26. **However, as of 2026-09-23,
+> GitHub has since rolled out a full React rewrite of the Files Changed
+> tab** (`/pull/<n>/files` now redirects to `/pull/<n>/changes` with an
+> entirely different DOM) that this extension does not yet support — see
+> [Known Limitations](#known-limitations--future-work) for what that
+> means in practice and [docs/github-diff-dom.md](docs/github-diff-dom.md)
+> for what the new DOM looks like. Everything else described below (the
+> risk engine, the heuristic calibration, the scale/mutation-loop fix)
+> is still accurate; only the DOM-selector layer needs a v1.1 pass.
 
 ## The problem
 
@@ -317,6 +324,23 @@ for the self-triggering-observer regression check described below.
 
 ## Known Limitations / Future Work
 
+- **GitHub has replaced the Files Changed DOM this extension targets
+  (confirmed 2026-09-23, after this build was verified against the old
+  DOM on 2026-08-26).** Loading the extension today will do nothing on
+  any PR: GitHub now redirects `/pull/<n>/files` to `/pull/<n>/changes`
+  and renders it with a full React/Primer grid instead of the old
+  server-rendered table, so both the content script's page-detection
+  regex and every DOM selector it uses fail to match. Confirmed live
+  against two unrelated repos (a small fixture repo and `psf/requests`),
+  so it's a platform-wide rollout, not an account-specific preview. The
+  new DOM's shape — file path via `table[role="grid"]`'s `aria-label`,
+  hunk boundaries via `td.diff-hunk-cell`, content rows via
+  `tr.diff-line-row` with `data-diff-side="left"/"right"` cells — is
+  captured in [docs/github-diff-dom.md](docs/github-diff-dom.md) for
+  whoever picks up that v1.1 pass; adapting the extractor to it
+  correctly (particularly: a same-line modification now packs old+new
+  into one row instead of two) is real work, not a one-line selector
+  swap, so it wasn't rushed in here.
 - **Regex/string heuristics, not real parsing.** v1 deliberately avoids
   an AST parser to stay lightweight and language-agnostic, but that
   means it can be fooled by things a real parser wouldn't miss: a
