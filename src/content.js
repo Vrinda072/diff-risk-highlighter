@@ -13,7 +13,14 @@
 // See docs/github-diff-dom.md for the selectors relied on below.
 
 (function () {
-  const FILES_TAB_PATH = /\/pull\/\d+\/files(\/|$)/;
+  // /files is the classic (server-rendered table) UI; /changes is GitHub's
+  // React rewrite of the same tab, rolled out platform-wide some time
+  // between 2026-08-26 and 2026-09-23 (confirmed live against two
+  // unrelated repos — see docs/github-diff-dom.md). /files still
+  // client-redirects to /changes today, but matching both means this
+  // doesn't silently stop working again if that redirect is ever removed
+  // or a session lands on the classic UI for any reason.
+  const FILES_TAB_PATH = /\/pull\/\d+\/(files|changes)(\/|$)/;
 
   function isFilesChangedPage() {
     return FILES_TAB_PATH.test(location.pathname);
@@ -60,6 +67,10 @@
   // td.blob-code-hunk marker either way). `data-hunk` on later rows marks
   // group membership, not a boundary, and is not used here (see
   // docs/github-diff-dom.md for the full writeup).
+  //
+  // `hunkCell` is carried on each hunk alongside `headerRow` so markHunk
+  // can append a badge/button without needing to know which DOM shape
+  // (classic table vs. the newer React grid below) produced this hunk.
   function extractHunksFromFile(fileEl, table) {
     const header = fileEl.querySelector('.file-header');
     const filePath =
@@ -71,7 +82,7 @@
     for (const row of table.querySelectorAll('tr')) {
       const hunkCell = row.querySelector('td.blob-code-hunk');
       if (hunkCell) {
-        current = { filePath, headerRow: row, rows: [], addedLines: [], removedLines: [] };
+        current = { filePath, headerRow: row, hunkCell, rows: [], addedLines: [], removedLines: [] };
         hunks.push(current);
         continue;
       }
@@ -81,6 +92,44 @@
       const addInner = row.querySelector('td.blob-code-addition .blob-code-inner');
       if (addInner) current.addedLines.push(addInner.textContent);
       const delInner = row.querySelector('td.blob-code-deletion .blob-code-inner');
+      if (delInner) current.removedLines.push(delInner.textContent);
+    }
+
+    return hunks;
+  }
+
+  // GitHub's React rewrite of Files Changed (confirmed live 2026-09-23 —
+  // see docs/github-diff-dom.md for the full DOM capture). Structurally
+  // simpler than it first looks: despite the "grid" framing, every line —
+  // boundary, context, addition, or deletion — is still exactly one
+  // <tr class="diff-line-row">, in the same top-to-bottom order a classic
+  // unified diff would produce. Only the selectors changed:
+  //   - hunk boundary:  td.diff-hunk-cell        (was td.blob-code-hunk)
+  //   - added line:     code.diff-text.addition  (was td.blob-code-addition)
+  //   - removed line:   code.diff-text.deletion  (was td.blob-code-deletion)
+  //   - line text:      .diff-text-inner         (was .blob-code-inner)
+  // The badge/button is appended into the hunk's own flex row (alongside
+  // GitHub's expand-up/down button) rather than the <td> directly, so it
+  // lays out inline with the existing controls instead of wrapping onto
+  // its own line below them.
+  function extractHunksFromNewDiffTable(table, filePath) {
+    const hunks = [];
+    let current = null;
+
+    for (const row of table.querySelectorAll('tr.diff-line-row')) {
+      const hunkTd = row.querySelector('td.diff-hunk-cell');
+      if (hunkTd) {
+        const hunkCell = hunkTd.querySelector('div.d-flex.flex-row') || hunkTd;
+        current = { filePath, headerRow: row, hunkCell, rows: [], addedLines: [], removedLines: [] };
+        hunks.push(current);
+        continue;
+      }
+      if (!current) continue;
+
+      current.rows.push(row);
+      const addInner = row.querySelector('td.diff-text-cell code.diff-text.addition .diff-text-inner');
+      if (addInner) current.addedLines.push(addInner.textContent);
+      const delInner = row.querySelector('td.diff-text-cell code.diff-text.deletion .diff-text-inner');
       if (delInner) current.removedLines.push(delInner.textContent);
     }
 
@@ -112,7 +161,7 @@
       if (row.children[0]) row.children[0].classList.add(markClass);
     }
 
-    const hunkCell = hunk.headerRow.querySelector('td.blob-code-hunk');
+    const hunkCell = hunk.hunkCell;
     if (hunkCell && !hunkCell.querySelector('.driskh-badge')) {
       const badge = document.createElement('span');
       badge.className = `driskh-badge driskh-badge--${result.level}`;
@@ -210,8 +259,13 @@
     let bar = document.getElementById(SUMMARY_BAR_ID);
     if (bar) return bar;
 
-    const filesEl = document.getElementById('files');
-    if (!filesEl || !filesEl.parentElement) return null;
+    // #files is the classic UI's file-list container; the React rewrite
+    // (see extractHunksFromNewDiffTable above) has no such element, so
+    // fall back to its one page-wide diffs-list container instead.
+    const anchor =
+      document.getElementById('files') ||
+      document.querySelector('[data-testid="progressive-diffs-list"]');
+    if (!anchor || !anchor.parentElement) return null;
 
     bar = document.createElement('div');
     bar.id = SUMMARY_BAR_ID;
@@ -219,12 +273,14 @@
     // (measured, not hardcoded, so it keeps working if GitHub's toolbar
     // height changes). It can cosmetically overlap the currently-stuck
     // file header for the height of this bar during scroll — a documented
-    // tradeoff, not a layout break (see README Known Limitations).
+    // tradeoff, not a layout break (see README Known Limitations). The
+    // React rewrite has no .pr-toolbar at all, so this degrades to a
+    // plain top:0 stick there rather than failing.
     const toolbar = document.querySelector('.pr-toolbar');
     const top = toolbar ? Math.round(toolbar.getBoundingClientRect().height) : 0;
     bar.style.top = `${top}px`;
 
-    filesEl.parentElement.insertBefore(bar, filesEl);
+    anchor.parentElement.insertBefore(bar, anchor);
     return bar;
   }
 
@@ -424,16 +480,45 @@
     return table.querySelectorAll('td.blob-code-hunk').length;
   }
 
+  function assessAndMark(hunk, hunkIndex) {
+    const result = DiffRiskEngine.assessHunk({
+      filePath: hunk.filePath,
+      addedLines: hunk.addedLines,
+      removedLines: hunk.removedLines,
+    });
+    markHunk(hunk, result, hunkIndex);
+  }
+
   function processPage() {
     if (!isFilesChangedPage()) return;
 
+    // Classic server-rendered table (see extractHunksFromFile) and
+    // GitHub's React rewrite (see extractHunksFromNewDiffTable) use
+    // disjoint selectors, so both are scanned unconditionally — whichever
+    // one the current session actually renders is the one that matches.
+    const newTables = document.querySelectorAll('table[aria-label^="Diff for: "]');
     const fileEls = document.querySelectorAll('.file[data-tagsearch-path]');
-    if (fileEls.length === 0) return; // still loading
+    if (newTables.length === 0 && fileEls.length === 0) return; // still loading
 
     injectStylesOnce();
 
     if (enabled) {
       let hunkIndex = document.querySelectorAll('tr[data-driskh-processed]').length;
+
+      for (const table of newTables) {
+        const currentHunkCount = table.querySelectorAll('td.diff-hunk-cell').length;
+        const lastHunkCount = Number(table.dataset.driskhHunkCount || 0);
+        if (currentHunkCount === lastHunkCount) continue; // nothing new since last scan
+        table.dataset.driskhHunkCount = String(currentHunkCount);
+
+        const filePath =
+          (table.getAttribute('aria-label') || '').replace(/^Diff for:\s*/, '') || '(unknown path)';
+        for (const hunk of extractHunksFromNewDiffTable(table, filePath)) {
+          if (hunk.headerRow.dataset.driskhProcessed) continue;
+          assessAndMark(hunk, hunkIndex++);
+        }
+      }
+
       for (const fileEl of fileEls) {
         const table = fileEl.querySelector('table.diff-table');
         if (!table) continue; // binary file, or diff collapsed behind "Load diff"/lazy-loaded fragment
@@ -443,15 +528,9 @@
         if (currentHunkCount === lastHunkCount) continue; // nothing new since last scan
         fileEl.dataset.driskhHunkCount = String(currentHunkCount);
 
-        const hunks = extractHunksFromFile(fileEl, table);
-        for (const hunk of hunks) {
+        for (const hunk of extractHunksFromFile(fileEl, table)) {
           if (hunk.headerRow.dataset.driskhProcessed) continue;
-          const result = DiffRiskEngine.assessHunk({
-            filePath: hunk.filePath,
-            addedLines: hunk.addedLines,
-            removedLines: hunk.removedLines,
-          });
-          markHunk(hunk, result, hunkIndex++);
+          assessAndMark(hunk, hunkIndex++);
         }
       }
     }

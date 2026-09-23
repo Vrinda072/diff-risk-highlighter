@@ -203,19 +203,25 @@ columns to span now). Verified by running the real extraction logic
 against `?diff=split` on the SQL-injection fixture PR and getting the
 identical 4-hunk / 1-high result as unified view.
 
-## CRITICAL, CONFIRMED 2026-09-23: GitHub has replaced this entire DOM
+## v1.1, 2026-09-23: GitHub replaced this entire DOM — now supported alongside it
 
-Re-verified live (both `virtual-imaging-platform/VIP-portal#698`, a small
+Confirmed live (both `virtual-imaging-platform/VIP-portal#698`, a small
 fixture repo, and `psf/requests#4052`, a large well-known one — so this
 isn't an account/repo-specific flag) while doing an end-to-end "run it"
-check of the shipped extension: **every selector this document describes
-above is now gone.** GitHub has rolled out a full React rewrite of the
-Files Changed tab, called internally "the upgraded Files Changed
-experience" (a dismissible banner announces it, linking
-`https://gh.io/new-files-changed-changelog`). This is a materially
-different situation from the "not yet verified" gaps below — those were
-hypothetical; this is confirmed to break the extension **completely, on
-every PR, today.**
+check of the shipped extension: GitHub has rolled out a full React
+rewrite of the Files Changed tab, called internally "the upgraded Files
+Changed experience" (a dismissible banner announces it, linking
+`https://gh.io/new-files-changed-changelog`), and **every selector this
+document describes above stopped matching, on every PR, immediately.**
+
+`src/content.js` now supports both DOM shapes: it scans for the new
+React grid's elements and the classic table's elements unconditionally
+on every pass (they're disjoint selectors, so only the one the current
+page actually rendered ever matches), rather than picking one at
+load time. That was a deliberate choice over detecting the "right" one
+up front — it means the extension keeps working through GitHub
+A/B-testing this again, rolling it back, or any session simply landing
+on whichever UI for reasons outside this extension's control.
 
 What changed:
 
@@ -233,67 +239,102 @@ What changed:
 
 What the new DOM actually looks like (captured live from
 `psf/requests#4052`'s `utils.py` hunk, the same one used as the
-`requests_regression.diff` fixture):
+`requests_regression.diff` fixture — full `outerHTML`, not trimmed):
 
 ```html
 <table aria-label="Diff for: requests/utils.py" role="grid" class="... DiffLines-module__tableLayoutFixed__Ui4OU">
   <tbody>
+    <!-- hunk boundary: one <tr>, one <td colspan="4"> -->
     <tr class="diff-line-row">
-      <td class="diff-hunk-cell focusable-grid-cell left-side" colspan="4"
-          data-line-anchor="diff-<sha>R683" role="gridcell">
-        <div class="d-flex flex-row"><code class="diff-text-cell hunk">
-          <div class="diff-text-inner color-fg-muted">@@ -684,7 +684,7 @@ def should_bypass_proxies(url, no_proxy):</div>
-        </code></div>
+      <td class="diff-hunk-cell focusable-grid-cell left-side" colspan="4" role="gridcell">
+        <div class="d-flex flex-row">
+          <button aria-label="Expand file up from line 684" ...></button>
+          <code class="diff-text-cell hunk">
+            <div class="diff-text-inner color-fg-muted">@@ -684,7 +684,7 @@ def should_bypass_proxies(url, no_proxy):</div>
+          </code>
+        </div>
       </td>
     </tr>
-    <!-- unchanged line: one line-number cell + one content cell -->
+
+    <!-- context line: real line-number cells on both sides, one content cell -->
     <tr class="diff-line-row" data-row-selected="false">
-      <td class="focusable-grid-cell new-diff-line-number left-side diff-line-number-neutral"
-          data-diff-side="left" data-line-number="684" role="gridcell">684</td>
-      <!-- ...content cell follows... -->
+      <td class="... diff-line-number-neutral" data-diff-side="left" data-line-number="684">684</td>
+      <td class="... diff-line-number-neutral" data-diff-side="right" data-line-number="684">684</td>
+      <td class="diff-text-cell ..." data-diff-side="right" data-line-number="684">
+        <code class="diff-text syntax-highlighted-line">
+          <div class="diff-text-inner">    <span class="pl-k">return</span> <span class="pl-c1">False</span></div>
+        </code>
+      </td>
     </tr>
-    <!-- a changed line pairs old+new in ONE row, not two: -->
+
+    <!-- deletion: its OWN <tr> (not packed with the addition) -->
     <tr class="diff-line-row" data-row-selected="false">
-      <td class="focusable-grid-cell new-diff-line-number empty-diff-line left-side"
-          style="background-color:var(--diffBlob-additionNum-bgColor, ...)"></td>
-      <td class="focusable-grid-cell new-diff-line-number left-side" data-diff-side="right"
-          data-diff-line-key="b:687-l:687-r:687" ...>687</td>
-      <!-- ...the added line's content cell follows... -->
+      <td class="..." data-diff-side="left" data-line-number="687">687</td>
+      <td class="... empty-diff-line left-side"></td>
+      <td class="diff-text-cell ..." data-diff-side="left" data-line-number="687">
+        <code class="diff-text syntax-highlighted-line deletion">
+          <span class="diff-text-marker">-</span>
+          <div class="diff-text-inner">def get_environ_proxies(url, no_proxy):</div>
+        </code>
+      </td>
+    </tr>
+
+    <!-- addition: a SEPARATE following <tr>, same line number (687), new side -->
+    <tr class="diff-line-row" data-row-selected="false">
+      <td class="... empty-diff-line left-side"></td>
+      <td class="..." data-diff-side="right" data-line-number="687">687</td>
+      <td class="diff-text-cell ..." data-diff-side="right" data-line-number="687">
+        <code class="diff-text syntax-highlighted-line addition">
+          <span class="diff-text-marker">+</span>
+          <div class="diff-text-inner">def get_environ_proxies(url, no_proxy=None):</div>
+        </code>
+      </td>
     </tr>
   </tbody>
 </table>
 ```
 
-Usable anchors for a future rewrite (not yet implemented or tested
-against, so treat as a starting point, not verified selectors):
+An earlier pass at this document (still visible in git history) guessed
+that a changed line packs old+new into one shared `<tr>`, split-view
+style. Live inspection of the actual `outerHTML` shows that guess was
+wrong: every line — boundary, context, addition, or deletion — is its
+own `<tr class="diff-line-row">`, in the same top-to-bottom order a
+classic unified diff produces. That's the one correction worth flagging
+explicitly, since it's the load-bearing fact for `src/content.js`'s new
+`extractHunksFromNewDiffTable()`: it can walk `tr.diff-line-row` in
+document order exactly like the classic extractor walks `tr`, just with
+different per-row selectors.
 
-- **File path**: `table[role="grid"]`'s `aria-label` attribute is
-  `"Diff for: <path>"` directly — actually more reliable than the old
-  `data-tagsearch-path` scrape.
-- **Hunk boundary**: `td.diff-hunk-cell` (replaces `td.blob-code-hunk`).
-- **Content rows**: `tr.diff-line-row`, each containing one or two
-  `td[role="gridcell"][data-diff-side="left"|"right"]` cells — a pure
-  addition or deletion row has an `empty-diff-line` cell on the side
-  with no content, and a same-line modification packs old+new into one
-  row instead of two, which changes how a hunk's `addedLines`/
-  `removedLines` need to be walked.
-- **Caution**: the table's own class (`DiffLines-module__tableLayoutFixed__Ui4OU`)
-  is a webpack CSS-module hash — GitHub regenerates these on every
-  frontend deploy, so it is not a stable selector even in the short
-  term, unlike the old hand-authored `blob-code-*` classes. Anything
-  built against this DOM should anchor on the semantic/ARIA attributes
-  (`role`, `data-diff-side`, `data-line-anchor`, `aria-label`) and the
-  few plain classes (`diff-line-row`, `diff-hunk-cell`), not the hashed
-  module classes.
+**Selectors now used by `src/content.js`** (verified live, both against
+`vip_sqli`'s SQL-injection fixture PR and `requests_regression`'s
+signature-change fixture PR — correct classification, correct badge
+placement, correct summary-bar counts on both):
 
-This was not adapted for in this pass — reverse-engineering an
-undocumented, actively-changing React grid accurately enough to keep the
-heuristics' hunk boundaries and added/removed-line attribution correct
-is real, separate engineering work, not a quick selector swap, and
-shipping a half-verified version of it would undermine the one thing
-this project is supposed to demonstrate (careful, calibrated
-correctness). Treat this as the top item in a "v1.1: new Files Changed
-UI" pass, not folded silently into v1.
+| Old DOM | New DOM |
+|---|---|
+| `.file[data-tagsearch-path]` (per-file container + path) | `table[aria-label^="Diff for: "]` (the table itself carries the path — one fewer lookup than before) |
+| `td.blob-code-hunk` (hunk boundary) | `td.diff-hunk-cell` |
+| `td.blob-code-addition .blob-code-inner` | `td.diff-text-cell code.diff-text.addition .diff-text-inner` |
+| `td.blob-code-deletion .blob-code-inner` | `td.diff-text-cell code.diff-text.deletion .diff-text-inner` |
+| (context line, no special class) | `code.diff-text` with neither `.addition` nor `.deletion` |
+| `#files` (summary-bar insertion anchor) | `[data-testid="progressive-diffs-list"]` (`#files` doesn't exist in the new UI) |
+| `.pr-toolbar` (sticky-offset measurement) | doesn't exist in the new UI — degrades to `top: 0` |
+
+**Caution kept from the original capture**: the table's own class
+(`DiffLines-module__tableLayoutFixed__Ui4OU`) is a webpack CSS-module
+hash that GitHub regenerates on every frontend deploy — not used as a
+selector for exactly that reason. Everything `src/content.js` anchors on
+above is either a plain, apparently hand-authored class
+(`diff-line-row`, `diff-hunk-cell`, `diff-text-cell`, `diff-text-inner`,
+`addition`, `deletion`) or a semantic/ARIA attribute (`aria-label`,
+`data-testid`), the same stability bet the classic-DOM selectors made.
+
+Both extractors now run unconditionally on every scan (see
+`processPage()` in `src/content.js`) rather than picking one DOM shape
+at load time, so the extension keeps working through GitHub changing
+which UI a given session renders — including reverting this rollout,
+A/B-testing it further, or any account-specific variation neither
+repo tested here happened to hit.
 
 ## Known gaps / not yet verified
 
