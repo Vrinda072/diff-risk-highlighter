@@ -5,16 +5,18 @@ and flags which diff hunks are actually risky to review carefully versus
 which are safe to skim — using static heuristics, no LLM required.
 
 > **Status:** all 5 planned milestones are built (scaffold, risk engine,
-> DOM integration, polish/scale, optional LLM explanations) and verified
-> against GitHub's DOM as of 2026-08-26. **However, as of 2026-09-23,
-> GitHub has since rolled out a full React rewrite of the Files Changed
-> tab** (`/pull/<n>/files` now redirects to `/pull/<n>/changes` with an
-> entirely different DOM) that this extension does not yet support — see
-> [Known Limitations](#known-limitations--future-work) for what that
-> means in practice and [docs/github-diff-dom.md](docs/github-diff-dom.md)
-> for what the new DOM looks like. Everything else described below (the
-> risk engine, the heuristic calibration, the scale/mutation-loop fix)
-> is still accurate; only the DOM-selector layer needs a v1.1 pass.
+> DOM integration, polish/scale, optional LLM explanations), plus a v1.1
+> pass. GitHub rolled out a full React rewrite of the Files Changed tab
+> sometime between 2026-08-26 and 2026-09-23 (`/pull/<n>/files` now
+> redirects to `/pull/<n>/changes` with an entirely different DOM) —
+> caught by re-verifying the extension live against real PRs rather than
+> assuming the original build still held. `src/content.js` now scans
+> both the classic DOM and the new React grid unconditionally on every
+> pass, verified live against the same SQL-injection and
+> signature-change fixture PRs used during the original calibration
+> (correct classification, correct badge, correct summary-bar counts on
+> both). See [docs/github-diff-dom.md](docs/github-diff-dom.md) for the
+> full DOM capture and selector mapping.
 
 ## The problem
 
@@ -324,23 +326,25 @@ for the self-triggering-observer regression check described below.
 
 ## Known Limitations / Future Work
 
-- **GitHub has replaced the Files Changed DOM this extension targets
-  (confirmed 2026-09-23, after this build was verified against the old
-  DOM on 2026-08-26).** Loading the extension today will do nothing on
-  any PR: GitHub now redirects `/pull/<n>/files` to `/pull/<n>/changes`
-  and renders it with a full React/Primer grid instead of the old
-  server-rendered table, so both the content script's page-detection
-  regex and every DOM selector it uses fail to match. Confirmed live
-  against two unrelated repos (a small fixture repo and `psf/requests`),
-  so it's a platform-wide rollout, not an account-specific preview. The
-  new DOM's shape — file path via `table[role="grid"]`'s `aria-label`,
-  hunk boundaries via `td.diff-hunk-cell`, content rows via
-  `tr.diff-line-row` with `data-diff-side="left"/"right"` cells — is
-  captured in [docs/github-diff-dom.md](docs/github-diff-dom.md) for
-  whoever picks up that v1.1 pass; adapting the extractor to it
-  correctly (particularly: a same-line modification now packs old+new
-  into one row instead of two) is real work, not a one-line selector
-  swap, so it wasn't rushed in here.
+- **GitHub replaced the Files Changed DOM this extension targets,
+  mid-project** (confirmed 2026-09-23, after the original build was
+  verified against the old DOM on 2026-08-26) — GitHub now redirects
+  `/pull/<n>/files` to `/pull/<n>/changes` and renders it with a full
+  React/Primer grid instead of the old server-rendered table. Confirmed
+  live against two unrelated repos (a small fixture repo and
+  `psf/requests`), so it's a platform-wide rollout, not an
+  account-specific preview. **v1.1 adapts to this**: `src/content.js`
+  now scans both DOM shapes unconditionally on every pass rather than
+  detecting one up front, so it keeps working regardless of which UI a
+  given session renders — including if GitHub reverts or further
+  A/B-tests this change. Verified live against the same SQL-injection
+  and signature-change fixture PRs used in the original calibration.
+  The one thing not re-verified: the new UI's own lazy-loading behavior
+  for very large PRs (the classic UI's "Load diff" `<include-fragment>`
+  mechanism, and the scale optimizations built around it, were tested
+  against a 2,848-line file — the new UI's equivalent hasn't been). See
+  [docs/github-diff-dom.md](docs/github-diff-dom.md) for the full DOM
+  capture and selector mapping.
 - **Regex/string heuristics, not real parsing.** v1 deliberately avoids
   an AST parser to stay lightweight and language-agnostic, but that
   means it can be fooled by things a real parser wouldn't miss: a
