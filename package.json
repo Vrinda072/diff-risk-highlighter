@@ -4,6 +4,11 @@
   "private": true,
   "description": "Chrome extension that flags risky vs. safe-to-skim diff hunks on GitHub PR pages.",
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "test:e2e": "playwright test",
+    "test:e2e:login": "node e2e/save-github-session.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
   }
 }
