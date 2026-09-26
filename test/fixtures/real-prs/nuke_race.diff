@@ -1,0 +1,98 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c23e9a680..0d17f89f3 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -97,6 +97,7 @@
+ - Fix `ImageTask/events`, `ImageTask/progress`, and `ImageTask/previews` missing previews and progress updates sent before the subscription lands – https://github.com/kean/Nuke/pull/980
+ - Fix a resumed download that failed again discarding its resumable data, so the next attempt started from scratch – https://github.com/kean/Nuke/pull/1006
+ - Fix `ImageRequest/Options/skipDataLoadingQueue` being ignored when another request for the same resource is already waiting in the queue – https://github.com/kean/Nuke/pull/1005
++- Fix a data race on `DataLoader/delegate` – https://github.com/kean/Nuke/pull/998
+ 
+ **Documentation**
+ 
+diff --git a/Sources/Nuke/Loading/DataLoader.swift b/Sources/Nuke/Loading/DataLoader.swift
+index 3000e2ba2..0e82c209f 100644
+--- a/Sources/Nuke/Loading/DataLoader.swift
++++ b/Sources/Nuke/Loading/DataLoader.swift
+@@ -36,10 +36,12 @@ public final class DataLoader: DataLoading, Sendable {
+     ///
+     /// - note: The delegate is retained.
+     ///
+-    /// - warning: Set the delegate before loading any data. The access
+-    /// isn't synchronized.
+-    public nonisolated(unsafe) var delegate: URLSessionDelegate? {
+-        didSet { impl.delegate = delegate }
++    /// - note: The delegate is read by every session callback on the session's
++    /// delegate queue and when each task is created, which can happen on any
++    /// thread, so the access is synchronized.
++    public var delegate: URLSessionDelegate? {
++        get { impl.delegate }
++        set { impl.delegate = newValue }
+     }
+ 
+     deinit {
+@@ -169,7 +171,13 @@ private final class _DataLoader: NSObject, URLSessionDataDelegate, Sendable {
+     /// The metrics of the tasks whose handlers asked for them, held from
+     /// the moment they are collected to the completion, which delivers them.
+     private nonisolated(unsafe) var metrics = [URLSessionTask: URLSessionTaskMetrics]()
+-    nonisolated(unsafe) var delegate: URLSessionDelegate?
++
++    var delegate: URLSessionDelegate? {
++        get { _delegate.withLockUnchecked { $0 } }
++        set { _delegate.withLockUnchecked { $0 = newValue } }
++    }
++
++    private let _delegate = OSAllocatedUnfairLock<URLSessionDelegate?>(uncheckedState: nil)
+ 
+     init(validate: @Sendable @escaping (URLResponse) -> Swift.Error?) {
+         self.validate = validate
+diff --git a/Tests/NukeTests/DataLoaderTests.swift b/Tests/NukeTests/DataLoaderTests.swift
+index 8de90b623..d6accdc6e 100644
+--- a/Tests/NukeTests/DataLoaderTests.swift
++++ b/Tests/NukeTests/DataLoaderTests.swift
+@@ -382,6 +382,45 @@ struct DataLoaderTests {
+         #expect(collected.transactionMetrics.first?.request.url == url)
+     }
+ 
++    /// The loader reads `delegate` in every session callback and when each
++    /// task is created, which happens on the thread that starts the request,
++    /// so replacing it from another thread has to be synchronized – otherwise
++    /// the process crashes or the thread sanitizer aborts the test run.
++    @Test func delegateIsReplacedWhileLoadingData() async throws {
++        // Given
++        let loader = makeDataLoader()
++        let urls = (0..<50).map { mockURL("delegate-replace-\($0)") }
++        for url in urls {
++            registerMock(url: url, chunks: [Data("x".utf8)])
++        }
++
++        let writer = Task.detached {
++            while !Task.isCancelled {
++                loader.delegate = SpyURLSessionDelegate()
++                await Task.yield()
++            }
++        }
++
++        // When loading data while the delegate is being replaced
++        try await withThrowingTaskGroup(of: Void.self) { group in
++            for url in urls {
++                group.addTask {
++                    var received = Data()
++                    for try await (chunk, _) in loader.loadData(with: URLRequest(url: url)) {
++                        received.append(chunk)
++                    }
++                    #expect(received == Data("x".utf8))
++                }
++            }
++            try await group.waitForAll()
++        }
++
++        // Then no data races are reported
++        writer.cancel()
++        await writer.value
++        #expect(loader.delegate is SpyURLSessionDelegate)
++    }
++
+     // MARK: - Default Validation
+ 
+     @Test func initWithDefaultValidation() async throws {

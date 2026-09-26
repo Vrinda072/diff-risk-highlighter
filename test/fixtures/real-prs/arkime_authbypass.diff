@@ -1,0 +1,13 @@
+diff --git a/viewer/viewer.js b/viewer/viewer.js
+index 7bb666ab1..098ab0bb2 100644
+--- a/viewer/viewer.js
++++ b/viewer/viewer.js
+@@ -2213,7 +2213,7 @@ app.get('/cyberchef.html', [cyberchefCspHeader], express.static( // cyberchef cl
+ 
+ app.get( // cyberchef endpoint
+   '/cyberchef/:nodeName/session/:id',
+-  [User.checkPermissions(['webEnabled']), checkProxyRequest, cyberchefCspHeader],
++  [User.checkPermissions(['webEnabled', 'hidePcap', 'disablePcapDownload']), checkProxyRequest, cyberchefCspHeader],
+   MiscAPIs.cyberChef
+ );
+ 
