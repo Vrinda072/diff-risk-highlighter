@@ -1,0 +1,299 @@
+[
+  {
+    "id": "vip_sqli", "repo": "virtual-imaging-platform/VIP-portal", "number": 698, "category": "auth-security", "fetchedAt": "2026-08-26",
+    "summary": "SQL injection: string-concatenated query rebuilt as a parameterized query.",
+    "fixHunks": [{ "file": "vip-core/src/main/java/fr/insalyon/creatis/vip/core/server/dao/mysql/UsersGroupsData.java", "header": "@@ -160,39 +162,38 @@" }]
+  },
+  {
+    "id": "partage_xss", "repo": "deltablot/partage", "number": 8, "category": "auth-security", "fetchedAt": "2026-08-26",
+    "summary": "XSS: download responses get Content-Disposition/nosniff/CSP headers.",
+    "fixHunks": [{ "file": "src/main.go", "header": "@@ -233,7 +233,12 @@" }]
+  },
+  {
+    "id": "cais_csrf", "repo": "puppe1990/cais", "number": 180, "category": "auth-security", "fetchedAt": "2026-08-26",
+    "summary": "CSRF cookie fixation: production cookie gets the __Host- prefix, reads fall back to the old name.",
+    "fixHunks": [
+      { "file": "pkg/cais/csrf/csrf.go", "header": "@@ -18,8 +18,22 @@" },
+      { "file": "pkg/cais/csrf/csrf.go", "header": "@@ -41,7 +55,7 @@" },
+      { "file": "pkg/cais/csrf/csrf.go", "header": "@@ -54,7 +68,7 @@" },
+      { "file": "pkg/cais/csrf/csrf.go", "header": "@@ -63,8 +77,12 @@" },
+      { "file": "pkg/cais/csrf/csrf.go", "header": "@@ -85,7 +103,7 @@" }
+    ]
+  },
+  {
+    "id": "passkey_authbypass", "repo": "stellar/passkey-kit", "number": 4, "category": "auth-security", "fetchedAt": "2026-08-26",
+    "summary": "Authorization bypass: policy signers could skip their own policy on self-removal; missing policies now fail closed.",
+    "fixHunks": [
+      { "file": "contracts/smart-wallet/src/context.rs", "header": "@@ -35,15 +35,6 @@" },
+      { "file": "contracts/smart-wallet/src/context.rs", "header": "@@ -165,15 +156,18 @@" },
+      { "file": "contracts/smart-wallet/src/lib.rs", "header": "@@ -380,29 +380,19 @@" }
+    ]
+  },
+  {
+    "id": "alacritty_offbyone", "repo": "alacritty/alacritty", "number": 9027, "category": "off-by-one", "fetchedAt": "2026-08-26",
+    "summary": "Rust range bound `..` → `..=` in vi-mode motion.",
+    "fixHunks": [{ "file": "alacritty_terminal/src/vi_mode.rs", "header": "@@ -161,7 +161,7 @@" }]
+  },
+  {
+    "id": "mglet_offbyone", "repo": "kmturbulenz/mglet-base", "number": 226, "category": "off-by-one", "fetchedAt": "2026-08-26",
+    "summary": "Fortran array index fixed by appending `- 1` (added token, not an operator swap).",
+    "fixHunks": [
+      { "file": "src/core/fieldhelper_mod.F90", "header": "@@ -71,7 +71,7 @@" },
+      { "file": "src/core/fieldhelper_mod.F90", "header": "@@ -134,7 +134,7 @@" },
+      { "file": "src/flow/pressuresolver_mod.F90", "header": "@@ -951,7 +951,7 @@" }
+    ]
+  },
+  {
+    "id": "squarelet_race", "repo": "MuckRock/squarelet", "number": 777, "category": "race-condition", "fetchedAt": "2026-08-26",
+    "summary": "Race condition in organization billing tasks.",
+    "fixHunks": [
+      { "file": "squarelet/organizations/tasks.py", "header": "@@ -371,20 +371,26 @@" },
+      { "file": "squarelet/organizations/tasks.py", "header": "@@ -658,20 +664,26 @@" },
+      { "file": "squarelet/organizations/tasks.py", "header": "@@ -701,20 +713,26 @@" },
+      { "file": "squarelet/organizations/tasks.py", "header": "@@ -728,20 +746,26 @@" }
+    ]
+  },
+  {
+    "id": "django_deadcode", "repo": "django/django", "number": 18925, "category": "dead-code-removal", "fetchedAt": "2026-08-26",
+    "summary": "try/except/else block the author confirmed unreachable, removed.",
+    "fixHunks": [{ "file": "django/core/validators.py", "header": "@@ -177,31 +175,17 @@" }]
+  },
+  {
+    "id": "pandas_deadcode", "repo": "pandas-dev/pandas", "number": 66045, "category": "dead-code-removal", "fetchedAt": "2026-08-26",
+    "summary": "Genuinely unreachable conditional branches removed across five files.",
+    "fixHunks": [
+      { "file": "pandas/core/groupby/categorical.py", "header": "@@ -69,8 +69,6 @@" },
+      { "file": "pandas/core/groupby/groupby.py", "header": "@@ -5448,11 +5448,8 @@" },
+      { "file": "pandas/core/internals/blocks.py", "header": "@@ -1456,10 +1456,6 @@" },
+      { "file": "pandas/core/internals/construction.py", "header": "@@ -975,39 +975,17 @@" },
+      { "file": "pandas/core/internals/managers.py", "header": "@@ -2301,9 +2301,6 @@" }
+    ]
+  },
+  {
+    "id": "numpy_unreachable", "repo": "numpy/numpy", "number": 32143, "category": "dead-code-removal", "fetchedAt": "2026-08-26",
+    "summary": "`if` branch marked `# TODO: this path can never be reached`, removed.",
+    "fixHunks": [{ "file": "numpy/_core/_dtype.py", "header": "@@ -163,16 +163,12 @@" }]
+  },
+  {
+    "id": "requests_regression", "repo": "psf/requests", "number": 4052, "category": "signature-change", "fetchedAt": "2026-08-26",
+    "summary": "Regression fix: a parameter regains its default value.",
+    "fixHunks": [{ "file": "requests/utils.py", "header": "@@ -684,7 +684,7 @@" }]
+  },
+  {
+    "id": "flask_signature", "repo": "pallets/flask", "number": 5818, "category": "signature-change", "fetchedAt": "2026-08-26",
+    "summary": "Dispatch methods now take `ctx: AppContext`, with a deprecation shim for subclasses overriding the old signatures.",
+    "fixHunks": [
+      { "file": "src/flask/app.py", "header": "@@ -73,6 +76,35 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -218,6 +250,62 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -498,7 +586,9 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -794,16 +884,16 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -868,10 +959,10 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -892,12 +983,12 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -946,15 +1038,14 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -1260,7 +1351,7 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -1288,7 +1379,7 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -1316,7 +1405,9 @@" },
+      { "file": "src/flask/app.py", "header": "@@ -1331,16 +1422,16 @@" },
+      { "file": "src/flask/templating.py", "header": "@@ -123,8 +119,9 @@" }
+    ]
+  },
+  {
+    "id": "django_rename", "repo": "django/django", "number": 21696, "category": "refactor", "fetchedAt": "2026-08-26",
+    "summary": "`RAISE` → `FETCH_RAISE` renamed across ~15 files.",
+    "fixHunks": []
+  },
+  {
+    "id": "passcore_prettier", "repo": "EastCentralRegionalLibrary/passcore", "number": 150, "category": "refactor", "fetchedAt": "2026-08-26",
+    "summary": "Pure Prettier reformat of TSX, including trailing-comma insertions.",
+    "fixHunks": []
+  },
+  {
+    "id": "camconf_refactor", "repo": "MarekNajman/Cam-Conf-RPi-Prusa-Connect-Cam", "number": 2, "category": "refactor", "fetchedAt": "2026-08-26",
+    "summary": "Shell-script restructuring PR titled \"no functional changes\".",
+    "fixHunks": []
+  },
+  {
+    "id": "django_feature", "repo": "django/django", "number": 16012, "category": "feature", "fetchedAt": "2026-08-26",
+    "summary": "Admin actions on edit pages: ordinary mixed-signal feature PR, smoke test only.",
+    "fixHunks": []
+  },
+  {
+    "id": "stelinter_depbump", "repo": "Firelight-Innovations/STE-Linter", "number": 18, "category": "dependency-bump", "fetchedAt": "2026-08-26",
+    "summary": "CI action version bumps.",
+    "fixHunks": []
+  },
+
+  {
+    "id": "nextjs_offbyone", "repo": "vercel/next.js", "number": 93524, "category": "off-by-one",
+    "summary": "Rust: inline-string length checks `<` → `<=` (and `>=` → `>`) against MAX_INLINE_LEN.",
+    "fixHunks": [
+      { "file": "turbopack/crates/turbo-rcstr/src/dynamic.rs", "header": "@@ -58,7 +58,7 @@" },
+      { "file": "turbopack/crates/turbo-rcstr/src/dynamic.rs", "header": "@@ -113,7 +113,7 @@" },
+      { "file": "turbopack/crates/turbo-rcstr/src/lib.rs", "header": "@@ -169,10 +169,10 @@" },
+      { "file": "turbopack/crates/turbo-rcstr/src/lib.rs", "header": "@@ -643,7 +643,7 @@" },
+      { "file": "turbopack/crates/turbo-rcstr/src/lib.rs", "header": "@@ -658,7 +658,7 @@" }
+    ]
+  },
+  {
+    "id": "moltenvk_offbyone", "repo": "KhronosGroup/MoltenVK", "number": 2602, "category": "off-by-one",
+    "summary": "Objective-C++: one-line `<` → `<=` on a descriptor-count limit.",
+    "fixHunks": [{ "file": "MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm", "header": "@@ -4291,7 +4291,7 @@" }]
+  },
+  {
+    "id": "renewables_offbyone", "repo": "microsoft/global-renewables-watch", "number": 12, "category": "off-by-one",
+    "summary": "Python: random-crop upper bounds gain `+ 1` (added token, not an operator swap).",
+    "fixHunks": [{ "file": "src/wind/data/streaming_dataset.py", "header": "@@ -169,16 +169,16 @@" }]
+  },
+  {
+    "id": "dill_offbyone", "repo": "uqfoundation/dill", "number": 651, "category": "off-by-one",
+    "summary": "Python: `range(1, lbuf)` → `range(1, lbuf+1)` drops the last history line.",
+    "fixHunks": [{ "file": "dill/source.py", "header": "@@ -150,7 +150,7 @@" }]
+  },
+  {
+    "id": "franzgo_offbyone", "repo": "twmb/franz-go", "number": 381, "category": "off-by-one",
+    "summary": "Go: a stray `+ 1` removed from the next-sequence-number calculation.",
+    "fixHunks": [{ "file": "pkg/kfake/pid.go", "header": "@@ -75,7 +75,7 @@" }]
+  },
+
+  {
+    "id": "spp_race", "repo": "esrrhs/spp", "number": 52, "category": "race-condition",
+    "summary": "Go: shared pong timestamp read/written with atomic.LoadInt64/StoreInt64.",
+    "fixHunks": [
+      { "file": "proxy/common.go", "header": "@@ -498,7 +498,7 @@" },
+      { "file": "proxy/common.go", "header": "@@ -778,8 +778,8 @@" }
+    ]
+  },
+  {
+    "id": "nats_race", "repo": "nats-io/nats-server", "number": 8647, "category": "race-condition",
+    "summary": "Go: consumer-assignment map lookup moved inside the existing RLock (check-then-act).",
+    "fixHunks": [
+      { "file": "server/jetstream_api.go", "header": "@@ -2395,6 +2395,10 @@" },
+      { "file": "server/jetstream_api.go", "header": "@@ -2411,10 +2415,6 @@" }
+    ]
+  },
+  {
+    "id": "redisearch_race", "repo": "RediSearch/RediSearch", "number": 11547, "category": "race-condition",
+    "summary": "C: thread-pool startup flags `volatile bool` → `atomic_bool`.",
+    "fixHunks": [
+      { "file": "deps/thpool/thpool.c", "header": "@@ -140,7 +140,7 @@" },
+      { "file": "deps/thpool/thpool.c", "header": "@@ -317,7 +317,7 @@" },
+      { "file": "deps/thpool/thpool.c", "header": "@@ -352,7 +352,7 @@" },
+      { "file": "deps/thpool/thpool.c", "header": "@@ -651,8 +651,10 @@" },
+      { "file": "deps/thpool/thpool.c", "header": "@@ -660,9 +662,9 @@" }
+    ]
+  },
+  {
+    "id": "pdns_race", "repo": "PowerDNS/pdns", "number": 18066, "category": "race-condition",
+    "summary": "C++: EDNS cookie secrets become LockGuarded<>, every access goes through a lock.",
+    "fixHunks": [
+      { "file": "pdns/auth-main.cc", "header": "@@ -856,7 +856,9 @@" },
+      { "file": "pdns/auth-main.cc", "header": "@@ -868,7 +870,7 @@" },
+      { "file": "pdns/auth-main.cc", "header": "@@ -877,10 +879,10 @@" },
+      { "file": "pdns/dnspacket.cc", "header": "@@ -56,8 +56,8 @@" },
+      { "file": "pdns/dnspacket.cc", "header": "@@ -354,7 +354,7 @@" },
+      { "file": "pdns/dnspacket.cc", "header": "@@ -631,7 +631,7 @@" },
+      { "file": "pdns/dnspacket.hh", "header": "@@ -170,8 +170,8 @@" },
+      { "file": "pdns/dynhandler.cc", "header": "@@ -129,33 +129,36 @@" },
+      { "file": "pdns/dynhandler.cc", "header": "@@ -164,11 +167,11 @@" },
+      { "file": "pdns/dynhandler.cc", "header": "@@ -176,12 +179,12 @@" },
+      { "file": "pdns/dynhandler.cc", "header": "@@ -190,11 +193,11 @@" }
+    ]
+  },
+  {
+    "id": "nuke_race", "repo": "kean/Nuke", "number": 998, "category": "race-condition",
+    "summary": "Swift: `nonisolated(unsafe) var delegate` guarded by OSAllocatedUnfairLock (plus CHANGELOG and a regression test).",
+    "fixHunks": [
+      { "file": "Sources/Nuke/Loading/DataLoader.swift", "header": "@@ -36,10 +36,12 @@" },
+      { "file": "Sources/Nuke/Loading/DataLoader.swift", "header": "@@ -169,7 +171,13 @@" }
+    ]
+  },
+
+  {
+    "id": "openrelik_authbypass", "repo": "openrelik/openrelik-server", "number": 229, "category": "auth-security",
+    "summary": "Python: `if folder_id:` → `if folder_id is not None:` — folder_id=0 skipped the access check.",
+    "fixHunks": [{ "file": "src/datastores/sql/crud/authz.py", "header": "@@ -134,7 +134,7 @@" }]
+  },
+  {
+    "id": "arkime_authbypass", "repo": "arkime/arkime", "number": 4263, "category": "auth-security",
+    "summary": "JS: CyberChef packet route's permission list gains hidePcap/disablePcapDownload.",
+    "fixHunks": [{ "file": "viewer/viewer.js", "header": "@@ -2213,7 +2213,7 @@" }]
+  },
+  {
+    "id": "orchard_missingauthz", "repo": "OrchardCMS/OrchardCore", "number": 19914, "category": "auth-security",
+    "summary": "C#: missing AuthorizeAsync/Forbid guards added to two Elasticsearch admin actions.",
+    "fixHunks": [
+      { "file": "src/OrchardCore.Modules/OrchardCore.Elasticsearch/Controllers/AdminController.cs", "header": "@@ -65,6 +65,11 @@" },
+      { "file": "src/OrchardCore.Modules/OrchardCore.Elasticsearch/Controllers/AdminController.cs", "header": "@@ -86,6 +91,11 @@" }
+    ]
+  },
+  {
+    "id": "dolibarr_idor", "repo": "Dolibarr/dolibarr", "number": 40406, "category": "auth-security",
+    "summary": "PHP IDOR: clone-tasks mass action now authorizes each source task's project (CVE bypass).",
+    "fixHunks": [{ "file": "htdocs/core/actions_massactions.inc.php", "header": "@@ -1960,8 +1960,28 @@" }]
+  },
+  {
+    "id": "edubadges_idor", "repo": "edubadges/edubadges-server", "number": 386, "category": "auth-security",
+    "summary": "Python/Django IDOR: terms-agreement lookup scoped to request.user; badge-instance owner permission added.",
+    "fixHunks": [
+      { "file": "apps/badgeuser/api.py", "header": "@@ -153,7 +154,10 @@" },
+      { "file": "apps/issuer/api.py", "header": "@@ -197,7 +198,7 @@" },
+      { "file": "apps/issuer/permissions.py", "header": "@@ -79,3 +79,12 @@" }
+    ]
+  },
+
+  {
+    "id": "weaviate_removedassert", "repo": "weaviate/weaviate", "number": 11801, "category": "weakened-test",
+    "summary": "Go: three `assert.True(latency1 > latency2)` assertions removed as flaky.",
+    "fixHunks": [
+      { "file": "adapters/repos/db/vector/dynamic/index_test.go", "header": "@@ -121,7 +121,6 @@" },
+      { "file": "adapters/repos/db/vector/dynamic/index_test.go", "header": "@@ -271,7 +270,6 @@" },
+      { "file": "adapters/repos/db/vector/dynamic/index_test.go", "header": "@@ -866,7 +864,6 @@" }
+    ]
+  },
+  {
+    "id": "authentik_removedassert", "repo": "goauthentik/authentik", "number": 13371, "category": "weakened-test",
+    "summary": "Python: assertions that the email-device session key is cleared, removed from an auth-stage test.",
+    "fixHunks": [{ "file": "authentik/stages/authenticator_email/tests.py", "header": "@@ -299,12 +299,6 @@" }]
+  },
+  {
+    "id": "jaxopt_loosenedassert", "repo": "google/jaxopt", "number": 642, "category": "weakened-test",
+    "summary": "Python: optimizer-result tolerance loosened 1e-3 → 1.5e-3.",
+    "fixHunks": [{ "file": "tests/lbfgsb_test.py", "header": "@@ -100,7 +100,8 @@" }]
+  },
+  {
+    "id": "apm_loosenedassert", "repo": "elastic/apm-agent-python", "number": 2636, "category": "weakened-test",
+    "summary": "Python: `0 < x < 1` CPU-percentage assertions lose their upper bound.",
+    "fixHunks": [{ "file": "tests/metrics/cpu_psutil_tests.py", "header": "@@ -47,8 +47,10 @@" }]
+  },
+  {
+    "id": "awssdk_loosenedassert", "repo": "aws/aws-sdk-js-v3", "number": 8212, "category": "weakened-test",
+    "summary": "TypeScript: exact request-path assertion replaced by a regex.",
+    "fixHunks": [{ "file": "packages-internal/middleware-sdk-route53/src/middleware-sdk-route53.integ.spec.ts", "header": "@@ -49,7 +49,7 @@" }]
+  },
+
+  {
+    "id": "qgis_rename", "repo": "qgis/QGIS", "number": 39344, "category": "refactor",
+    "summary": "C++: static variables renamed; no functional change.",
+    "fixHunks": []
+  },
+  {
+    "id": "flutter_rename", "repo": "flutter/devtools", "number": 1282, "category": "refactor",
+    "summary": "Dart: class CpuBottomUp → HtmlCpuBottomUp across 7 files.",
+    "fixHunks": []
+  },
+  {
+    "id": "verilator_rename", "repo": "verilator/verilator", "number": 4461, "category": "refactor",
+    "summary": "C++: `pure` → `dpiPure` accessor/field rename, one line re-wrapped.",
+    "fixHunks": []
+  },
+  {
+    "id": "vespa_rename", "repo": "vespa-engine/vespa", "number": 26180, "category": "refactor",
+    "summary": "Java: HostRegistry methods and fields renamed, plus a TODO comment.",
+    "fixHunks": []
+  },
+  {
+    "id": "openroad_rename", "repo": "The-OpenROAD-Project/OpenROAD", "number": 8475, "category": "refactor",
+    "summary": "C++: power-domain variables renamed to region — edge case: also changes a user-visible log string and its golden test output.",
+    "fixHunks": []
+  }
+]

@@ -1,0 +1,85 @@
+diff --git a/src/gpl/src/nesterovBase.cpp b/src/gpl/src/nesterovBase.cpp
+index 4c1e7598854..c288c9d1e90 100644
+--- a/src/gpl/src/nesterovBase.cpp
++++ b/src/gpl/src/nesterovBase.cpp
+@@ -2851,9 +2851,8 @@ bool NesterovBase::checkConvergence(int gpl_iter_count,
+     return true;
+   }
+   if (sum_overflow_unscaled_ <= npVars_->targetOverflow) {
+-    const bool is_power_domain = pb_->group();
+-    const std::string group_name
+-        = is_power_domain ? pb_->group()->getName() : "";
++    const bool has_group = pb_->group();
++    const std::string group_name = has_group ? pb_->group()->getName() : "";
+     const int final_iter = gpl_iter_count;
+     dbBlock* block = pb_->db()->getChip()->getBlock();
+ 
+@@ -2867,10 +2866,10 @@ bool NesterovBase::checkConvergence(int gpl_iter_count,
+     log_->report(
+         "---------------------------------------------------------------");
+ 
+-    if (is_power_domain) {
++    if (has_group) {
+       log_->info(GPL,
+                  1016,
+-                 "Power domain '{}' placement finished at iteration {}",
++                 "Region '{}' placement finished at iteration {}",
+                  group_name,
+                  final_iter);
+     } else {
+diff --git a/src/gpl/src/placerBase.cpp b/src/gpl/src/placerBase.cpp
+index 047dddd8edb..5a828041e36 100644
+--- a/src/gpl/src/placerBase.cpp
++++ b/src/gpl/src/placerBase.cpp
+@@ -28,7 +28,6 @@ using odb::dbITerm;
+ using odb::dbMPin;
+ using odb::dbNet;
+ using odb::dbPlacementStatus;
+-using odb::dbPowerDomain;
+ using odb::dbRow;
+ using odb::dbSet;
+ using odb::dbSigType;
+diff --git a/test/upf_aes.ok b/test/upf_aes.ok
+index e0c8f15c0e0..1fced3b8b4e 100644
+--- a/test/upf_aes.ok
++++ b/test/upf_aes.ok
+@@ -219,7 +219,7 @@ Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+       430 |   0.1411 |  1.835169e+06 |   +0.43% |  3.30e-07 |  (PD_AES_2)
+       436 |   0.0989 |  1.838610e+06 |          |  6.14e-07 | PD_AES_1
+ ---------------------------------------------------------------
+-[INFO GPL-1016] Power domain 'PD_AES_1' placement finished at iteration 436
++[INFO GPL-1016] Region 'PD_AES_1' placement finished at iteration 436
+ [INFO GPL-1002] Placed Cell Area            121017.3152
+ [INFO GPL-1003] Available Free Area         150144.0000
+ [INFO GPL-1004] Minimum Feasible Density        0.8100 (cell_area / free_area)
+@@ -234,7 +234,7 @@ Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+       460 |   0.1035 |  1.850758e+06 |   +0.24% |  5.78e-07 |  (PD_AES_2)
+       465 |   0.0996 |  1.852840e+06 |          |  6.46e-07 | PD_AES_2
+ ---------------------------------------------------------------
+-[INFO GPL-1016] Power domain 'PD_AES_2' placement finished at iteration 465
++[INFO GPL-1016] Region 'PD_AES_2' placement finished at iteration 465
+ [INFO GPL-1002] Placed Cell Area            121017.3152
+ [INFO GPL-1003] Available Free Area         150144.0000
+ [INFO GPL-1004] Minimum Feasible Density        0.8100 (cell_area / free_area)
+diff --git a/test/upf_test.ok b/test/upf_test.ok
+index 2dbf254c639..9d7e0dcff1f 100644
+--- a/test/upf_test.ok
++++ b/test/upf_test.ok
+@@ -266,7 +266,7 @@ Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+       830 |   0.1762 |  7.298180e+02 |   +4.65% |  4.73e-06 |  (PD_D2)
+       837 |   0.0901 |  7.572950e+02 |          |  5.49e-06 | PD_D2
+ ---------------------------------------------------------------
+-[INFO GPL-1016] Power domain 'PD_D2' placement finished at iteration 837
++[INFO GPL-1016] Region 'PD_D2' placement finished at iteration 837
+ [INFO GPL-1002] Placed Cell Area               43.7920
+ [INFO GPL-1003] Available Free Area           900.8640
+ [INFO GPL-1004] Minimum Feasible Density        0.0500 (cell_area / free_area)
+@@ -283,7 +283,7 @@ Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+       900 |   0.0658 |  9.887790e+02 |   +8.10% |  1.32e-05 |  (PD_D1)
+       900 |   0.0658 |  9.887790e+02 |          |  1.34e-05 | PD_D1
+ ---------------------------------------------------------------
+-[INFO GPL-1016] Power domain 'PD_D1' placement finished at iteration 900
++[INFO GPL-1016] Region 'PD_D1' placement finished at iteration 900
+ [INFO GPL-1002] Placed Cell Area               21.2704
+ [INFO GPL-1003] Available Free Area           900.8640
+ [INFO GPL-1004] Minimum Feasible Density        0.0300 (cell_area / free_area)
