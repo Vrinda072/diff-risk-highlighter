@@ -177,3 +177,39 @@ describe('smoke tests on large/complex real PRs (no crashes, valid output shape)
     );
   });
 });
+
+describe('real PR: passkey-kit#4 (authorization-bypass fix buried in prose and version bumps)', () => {
+  // Before: 15 high hunks, of which only context.rs/lib.rs were the actual
+  // fix — the rest were CHANGELOG/README/docs prose describing the fix and
+  // version bumps ("0.16.2" → "0.16.3") scored as off-by-one changes.
+  const hunks = loadHunks('passkey_authbypass.diff');
+
+  it('flags the actual fix (context.rs, lib.rs) as high', () => {
+    const fix = hunks.filter((h) => /^contracts\/smart-wallet\/src\/(context|lib)\.rs$/.test(h.filePath) && h.level === 'high');
+    assert.ok(fix.some((h) => h.filePath.endsWith('context.rs')), 'expected a high-risk context.rs hunk');
+    assert.ok(fix.some((h) => h.filePath.endsWith('lib.rs')), 'expected a high-risk lib.rs hunk');
+  });
+
+  it('scores every prose hunk (CHANGELOG, READMEs, docs/) as low', () => {
+    const prose = hunks.filter((h) => /(^|\/)(CHANGELOG|README)\.md$|^docs\//.test(h.filePath));
+    assert.ok(prose.length >= 8, `expected the fixture's prose hunks, got ${prose.length}`);
+    for (const h of prose) assert.equal(h.level, 'low', `${h.filePath}: ${h.reason}`);
+  });
+
+  it('scores every version-field hunk as low', () => {
+    // package.json ×2, src/version.ts ("0.16.2" → "0.16.3" style bumps, all
+    // previously high), plus contracts/smart-wallet/Cargo.toml and the
+    // Cargo.lock entry for it (both already low before).
+    const bumps = hunks.filter(
+      (h) => !/\.md$/.test(h.filePath) && [...h.removedLines, ...h.addedLines].every((l) => /version/i.test(l))
+    );
+    assert.deepEqual(bumps.map((h) => h.filePath).sort(), [
+      'contracts/Cargo.lock',
+      'contracts/smart-wallet/Cargo.toml',
+      'package.json',
+      'packages/passkey-kit-sdk/package.json',
+      'src/version.ts',
+    ]);
+    for (const h of bumps) assert.equal(h.level, 'low', `${h.filePath}: ${h.reason}`);
+  });
+});

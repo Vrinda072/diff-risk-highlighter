@@ -44,8 +44,13 @@ for the full list and what each one caught.
 **Checked first, short-circuits to low risk** (a hunk that's provably
 behavior-preserving is safe to skim no matter what words appear in it):
 
-1. **Lockfile/generated file** — `package-lock.json`, `yarn.lock`,
-   `Cargo.lock`, `*.min.js`, etc. Never hand-reviewed in practice.
+1. **Lockfile/generated or vendored file** — `package-lock.json`,
+   `yarn.lock`, `Cargo.lock`, `*.min.js`, protobuf output, `vendor/`,
+   `node_modules/`, `third_party/`, etc. Never hand-reviewed in practice.
+   Path rules adapted from
+   [github-linguist](https://github.com/github-linguist/linguist)'s
+   `generated.rb` and `vendor.yml`, which is what GitHub itself uses to
+   classify these files.
 2. **Formatting-only change** — added/removed lines are identical once
    whitespace and trailing commas are stripped (a Prettier/Black-style
    reformat, even one that re-wraps a call across more lines).
@@ -71,6 +76,19 @@ or `medium`):
 
 Anything left over is **low** risk.
 
+**Documentation files** (`CHANGELOG`, `README`, `*.md`/`*.rst`/…,
+anything under `docs/`; adapted from linguist's `documentation.yml`)
+skip the security-keyword and boundary-change detectors and the
+large-hunk fallback. Prose that *describes* an authorization fix isn't
+an authorization change. The structural detectors (removed error
+handling, removed conditional, signature change, SQL shape) still run
+on them. The boundary-change detector also ignores **version-shaped
+numbers**: semver-like literals anywhere (`"0.16.2"` → `"0.16.3"`), and
+any quoted version value in `package.json`, `Cargo.toml`, or
+`pyproject.toml`. Both rules come from
+[stellar/passkey-kit#4](https://github.com/stellar/passkey-kit/pull/4),
+described below.
+
 ### A note on why the keyword lists look narrow
 
 The first pass at the SQL and security heuristics used broad `\w*`
@@ -93,10 +111,11 @@ Calibration tests assert the engine gets specific fixtures right; they
 don't tell you where it's still wrong. So after the fixture set grew to
 17 real merged PRs, every one was run through `assessHunk` and the
 output read hunk-by-hunk, the same way a reviewer would judge whether
-the flags make sense. Three findings from that pass are real, current
-gaps — not fixed here, on purpose, since fixing a heuristic without
-more real-PR calibration tends to trade one false positive/negative for
-another:
+the flags make sense. That pass found three real gaps. They weren't
+fixed at the time, on purpose, since fixing a heuristic without more
+real-PR calibration tends to trade one false positive/negative for
+another. The third has since been fixed and checked against all 17
+fixtures:
 
 - **A same-shape, different-cause off-by-one is missed.**
   [`mglet_offbyone.diff`](test/fixtures/real-prs/mglet_offbyone.diff)
@@ -116,8 +135,8 @@ another:
   (missing lock/check-then-act patterns, shared mutable state) —
   because nothing was ever built to. This isn't a mistuned threshold,
   it's a category the heuristics don't cover yet.
-- **Prose and version bumps dilute a correct flag on the PR that
-  matters most.**
+- **Fixed: prose and version bumps diluted a correct flag on the PR
+  that matters most.**
   [`passkey_authbypass.diff`](test/fixtures/real-prs/passkey_authbypass.diff)
   ([stellar/passkey-kit#4](https://github.com/stellar/passkey-kit/pull/4))
   is a real authorization-bypass fix. The engine *does* correctly flag
@@ -131,6 +150,15 @@ another:
   currently excludes non-code files or version-literal-shaped numbers,
   so on a PR that's genuinely about security, the one flag that matters
   is buried in fourteen that don't.
+  **Now:** documentation files skip those two detectors, and version-shaped
+  numbers are masked before the boundary check (see
+  [How risk detection works](#how-risk-detection-works)). This PR goes
+  from 15 high to 8. The 3 fix hunks in `context.rs`/`lib.rs` stay high;
+  all 7 prose/version hunks that were high are now low. The other 5
+  highs are the PR's own auth tests (`test_auth.rs`,
+  `test_integration.rs`), which use the same security vocabulary. No
+  other fixture's high count changed; `django_feature` loses 2 medium
+  flags on long prose hunks in its `docs/`.
 
 Reproducible with the same one-liner used for this pass:
 
@@ -377,18 +405,27 @@ for the self-triggering-observer regression check described below.
   the list (e.g. `pwd` instead of `password`, raw SQL built with
   `String.format` instead of `+` concatenation). Widening them safely
   needs more real-PR calibration, not just adding more words.
-- **Three concrete gaps found during the 17-fixture review** (see
+- **Two concrete gaps found during the 17-fixture review** are still
+  open (see
   [What a 17-fixture human review actually found](#what-a-17-fixture-human-review-actually-found)
   for the fixtures and full detail): the boundary-change detector
   misses an off-by-one introduced by *adding* a token instead of
-  swapping one; there's no heuristic for concurrency/race-condition
-  bugs at all; and the security-keyword and boundary-change detectors
-  don't exclude non-code files (`CHANGELOG.md`, `README.md`) or
-  version-string-shaped numbers, which on one real fixture buried a
-  correct high-risk flag under fourteen prose/version-bump ones.
+  swapping one, and there's no heuristic for concurrency/race-condition
+  bugs at all. (The third, prose and version bumps burying a real flag,
+  is fixed.)
+- **File classification is path-only.** Linguist also detects generated
+  files by content (e.g. a "Code generated … DO NOT EDIT" header), but a
+  hunk only carries a few lines from the middle of a file, so a
+  generated file at an unconventional path is still scanned as code.
+  Documentation detection is also by path. A code sample removed from a
+  `.md` file still goes through the structural detectors (by design),
+  but a security term inside it no longer raises a flag.
 - Test-file-specific handling (e.g. flagging a *weakened or removed*
   assertion, as opposed to just noticing the file is a test) isn't
-  implemented — a reasonable v2 addition.
+  implemented — a reasonable v2 addition. Test files currently get the
+  same detectors as production code, so on a security fix the tests
+  exercising it are flagged high too (5 of the 8 remaining highs on
+  stellar/passkey-kit#4).
 - Split (side-by-side) diff view was checked live and works: GitHub
   reuses the same `td.blob-code-hunk`/`blob-code-addition`/
   `blob-code-deletion` classes there (a "changed" line just puts the old
