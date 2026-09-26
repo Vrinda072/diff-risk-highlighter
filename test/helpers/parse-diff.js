@@ -29,7 +29,16 @@ function parseDiff(text) {
       continue;
     }
     if (line.startsWith('@@')) {
-      currentHunk = { filePath: currentFile, addedLines: [], removedLines: [] };
+      // newStart/newCount (the "+c,d" range) aren't used by the risk
+      // engine — only by e2e/, to merge hunks the way GitHub renders them.
+      const range = line.match(/\+(\d+)(?:,(\d+))?/);
+      currentHunk = {
+        filePath: currentFile,
+        newStart: Number(range[1]),
+        newCount: range[2] === undefined ? 1 : Number(range[2]),
+        addedLines: [],
+        removedLines: [],
+      };
       hunks.push(currentHunk);
       continue;
     }

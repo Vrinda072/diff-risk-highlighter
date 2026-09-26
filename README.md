@@ -324,6 +324,41 @@ then visit `http://localhost:8934/test/perf/synthetic-large-diff.html`,
 or `http://localhost:8934/test/dom/pull/999/files/self-trigger-regression.html`
 for the self-triggering-observer regression check described below.
 
+### End-to-end tests (Playwright)
+
+The E2E suite loads this folder as an unpacked extension into Chromium
+(`--load-extension`) and runs it on the live GitHub "Files changed" page
+of every PR behind `test/fixtures/real-prs/`. It checks that the summary
+bar renders, that high/medium hunks get badges, and that the bar's counts
+match what the risk engine gives for the fixture diff. It needs network
+access to github.com, so it's separate from `npm test` and isn't run in
+CI:
+
+```bash
+npm install
+```
+
+```bash
+npx playwright install chromium
+```
+
+```bash
+npm run test:e2e
+```
+
+By default it runs signed out, which means GitHub serves the **classic**
+UI. The new React UI is only served to signed-in sessions. To run the
+suite against that UI, sign in once in the window this opens (you type
+your own credentials; the session cookies are saved to the gitignored
+`e2e/.auth/`):
+
+```bash
+npm run test:e2e:login
+```
+
+`HEADED=1 npm run test:e2e` shows the browser. Every test is annotated
+with the UI it actually saw.
+
 ## Known Limitations / Future Work
 
 - **GitHub replaced the Files Changed DOM this extension targets,
@@ -333,18 +368,35 @@ for the self-triggering-observer regression check described below.
   React/Primer grid instead of the old server-rendered table. Confirmed
   live against two unrelated repos (a small fixture repo and
   `psf/requests`), so it's a platform-wide rollout, not an
-  account-specific preview. **v1.1 adapts to this**: `src/content.js`
+  account-specific preview. It is, however, **signed-in only**: as of
+  2026-09-26, signed-out sessions still get the classic UI (`/changes`
+  302s back to `/files`), so both DOMs remain in use.
+  **v1.1 adapts to this**: `src/content.js`
   now scans both DOM shapes unconditionally on every pass rather than
   detecting one up front, so it keeps working regardless of which UI a
   given session renders — including if GitHub reverts or further
   A/B-tests this change. Verified live against the same SQL-injection
   and signature-change fixture PRs used in the original calibration.
-  The one thing not re-verified: the new UI's own lazy-loading behavior
-  for very large PRs (the classic UI's "Load diff" `<include-fragment>`
-  mechanism, and the scale optimizations built around it, were tested
-  against a 2,848-line file — the new UI's equivalent hasn't been). See
+  On 2026-09-26 the new UI's hunk extraction was checked byte-for-byte
+  against the fixture diffs on two 19–25-file PRs, including files
+  behind its "Load Diff" button. Still not verified: PRs with hundreds
+  of files, and the new UI's split view. See
   [docs/github-diff-dom.md](docs/github-diff-dom.md) for the full DOM
   capture and selector mapping.
+- **The summary bar over-counts low-risk hunks** (both UIs). GitHub adds
+  an "expand to end of file" row after a file's last hunk, and it uses
+  the same boundary cell as a real `@@` hunk header. `src/content.js`
+  counts it as an empty hunk and scores it low. The result is that the
+  "low" count and the "N hunks scanned" total are one too high per file
+  that doesn't end at EOF (e.g. 59 low instead of 47 on
+  django/django#16012). High/medium counts and badges are correct.
+  Caught by the E2E suite; see
+  [docs/github-diff-dom.md](docs/github-diff-dom.md).
+- **New UI: collapsing and re-expanding a file** throws away and
+  rebuilds its diff table, dropping that file's badges. From reading the
+  code (not verified live), the next scan should re-mark it, but the
+  re-marked hunks can reuse another hunk's `driskh-hunk-N` id, so a
+  "Jump to high risk" chip may scroll to the wrong hunk.
 - **Regex/string heuristics, not real parsing.** v1 deliberately avoids
   an AST parser to stay lightweight and language-agnostic, but that
   means it can be fooled by things a real parser wouldn't miss: a
@@ -426,4 +478,10 @@ test/risk-engine.real-diffs.test.js  Calibration/regression tests against real P
 test/fixtures/real-prs/          Raw diffs from real merged PRs, used by the above
 test/perf/synthetic-large-diff.html  Manual perf harness (150-file synthetic diff; needs a real DOM, not part of `npm test`)
 test/dom/pull/999/files/self-trigger-regression.html  Loads the real content.js/risk-engine.js and asserts the observer doesn't retrigger itself
+playwright.config.js             E2E config (npm run test:e2e); kept out of test/ so npm test stays fast and browser-free
+e2e/extension-fixture.js         Launches Chromium with this folder loaded via --load-extension
+e2e/real-prs.js                  Live PR for each fixture + expected high/medium/low counts from the risk engine
+e2e/real-prs.spec.js             E2E tests against those live PR pages
+e2e/save-github-session.js       npm run test:e2e:login — saves a signed-in session so E2E covers the new React UI
+.github/workflows/test.yml       CI: npm test on every push and PR
 ```
