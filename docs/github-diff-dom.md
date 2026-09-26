@@ -336,6 +336,136 @@ which UI a given session renders — including reverting this rollout,
 A/B-testing it further, or any account-specific variation neither
 repo tested here happened to hit.
 
+## 2026-09-26: Which UI is served, and what the E2E suite found
+
+Found while building the Playwright suite (`npm run test:e2e`, see
+`e2e/`), which loads the real unpacked extension into Chromium and runs
+it against the live PR behind every fixture in `test/fixtures/real-prs/`.
+
+### Which UI you get depends on being signed in
+
+The v1.1 section above describes the React UI as a platform-wide
+rollout where `/files` redirects to `/changes`. That's only true for
+**signed-in** sessions:
+
+| Session | `/pull/<n>/files` | `/pull/<n>/changes` | UI rendered |
+|---|---|---|---|
+| Signed out | 200 | **302 → `/files`** (server-side; same with a desktop Chrome user agent, and with plain `curl`) | classic table |
+| Signed in | client-redirects to `/changes` | 200 | React grid |
+
+So a logged-out browser (including the E2E suite by default, and any CI
+run) only ever sees the classic UI, while real reviewers (who are signed
+in) get the React UI. Both need to keep working. The E2E suite can be
+pointed at the React UI by saving a session you sign into yourself
+(`npm run test:e2e:login`; cookies go to the gitignored `e2e/.auth/`).
+
+### React UI: selectors still match, and extraction is byte-exact
+
+Checked signed-in on 2026-09-26 against `psf/requests#4052`,
+`stellar/passkey-kit#4` (25 files, 2 behind "Load Diff") and
+`django/django#16012` (19 files, 1 behind "Load Diff"). Every selector
+in the v1.1 mapping table above still resolves. Running
+`extractHunksFromNewDiffTable()` from `src/content.js` verbatim in the
+page and fingerprinting each hunk (file path, added/removed line counts,
+hash of the line text) gave an **identical** set to the fixture diffs
+(after the hunk merge described below): 54/54 hunks on passkey-kit,
+59/59 on django. Since the risk engine is a pure function of those
+lines, the extension scores the React UI exactly as it scores the
+fixtures. Injected badges (appended to the hunk's `div.d-flex.flex-row`,
+the same place `markHunk()` puts them) and a bar inserted before
+`[data-testid="progressive-diffs-list"]` both survived a full-page
+scroll.
+
+### Bug, both UIs: the "expand to end of file" row is counted as a hunk
+
+After a file's last hunk, both UIs render one more hunk-boundary row
+that is not a hunk. It's the "expand down to end of file" control, with
+no `@@` header and no diff lines under it:
+
+```html
+<!-- classic (psf/requests#4052, utils.py) -->
+<tr class="js-expandable-line js-skip-tagsearch" data-position="">
+  <td class="blob-num blob-num-expandable" colspan="2"><a class="js-expand directional-expander single-expander" aria-label="Expand Down" …>…</a></td>
+  <td class="blob-code blob-code-inner blob-code-hunk"></td>   <!-- empty -->
+</tr>
+
+<!-- React UI (psf/requests#4052, utils.py) -->
+<tr class="diff-line-row" data-row-selected="false">
+  <td colspan="4" class="diff-hunk-cell focusable-grid-cell left-side"
+      data-grid-cell-id="diff-<sha256>-empty-empty-0" data-line-anchor="diff-<sha256>R691" role="gridcell">
+    <div class="d-flex flex-row">
+      <button aria-label="Expand file down from line 690" data-direction="down" …></button>
+      <code class="diff-text-cell hunk"><div class="diff-text-inner color-fg-muted"></div></code>  <!-- empty -->
+    </div>
+  </td>
+</tr>
+```
+
+Both extractors in `src/content.js` start a new hunk at any
+`td.blob-code-hunk` / `td.diff-hunk-cell`, so each of these becomes an
+empty hunk, which the engine scores `low`. The effect is that the summary
+bar's **low count and "N hunks scanned" total are inflated by one per
+file that doesn't end at EOF**. High/medium counts, badges and jump links
+are unaffected. It shows up on 16 of the 17 fixture PRs, e.g.
+`django/django#16012` shows 59 low where the engine gives 47. The only
+exception is `camconf_refactor`, whose single file runs to EOF.
+`td.blob-code-hunk` was already the "reliable" hunk-counting selector in
+the classic notes above, and this is the case it misses. The fix is to
+skip boundary cells with no `@@` text. This is not fixed yet, and the
+E2E low-count test is declared as an expected failure while these rows
+are present, so it will flip once the fix lands.
+
+### React UI: collapsing a file throws its table away
+
+Collapsing a file (the header's "Collapse file" button) removes its
+`<table aria-label="Diff for: …">` from the DOM, and re-expanding
+builds a brand-new one without the injected badges or `data-driskh-*`
+attributes. Scrolling does not do this, and the classic UI hides
+collapsed diffs instead of removing them. Based on reading the code (not
+verified live), `content.js` should recover: the new table has no
+`data-driskh-hunk-count`, so the next observer-triggered scan re-marks
+it. But `processPage()` derives the next `hunkIndex` from the number of
+already-processed rows, so the re-marked hunks can get a
+`driskh-hunk-N` id that another hunk already has. A "Jump to high risk"
+chip for one of them could then scroll to the wrong hunk.
+
+### Other things worth knowing about the React UI
+
+- **Deferred files** show a `Load Diff` button (capital D; classic is
+  `Load diff`) with "Large diffs are not rendered by default." or "Some
+  generated files are not rendered by default." Until clicked there's
+  no table, so those files are simply not scanned, the same as the
+  classic behavior described below.
+- **`content-visibility: auto`** is set on every diff entry. Off-screen
+  entries report an empty `innerText` even though their DOM is fully
+  there. `content.js` reads `textContent`, which is unaffected. Don't
+  switch to `innerText`.
+- **Load timing:** with a real viewport, all non-deferred files of a
+  19–25-file PR were in the DOM at first load, with no scroll-driven
+  loading. With a 0×0 viewport (a hidden browser tab), only the first 3
+  of 19 rendered, so measure with a visible, sized window. PRs with
+  hundreds of files weren't tested.
+
+### Both UIs merge hunks one line apart
+
+GitHub's web diff merges two hunks of the same file when exactly one
+unchanged line separates them (like `git diff --inter-hunk-context=1`).
+`gh pr diff`, which produced the fixtures, keeps them separate. Across
+all 17 fixtures, every 1-line gap was merged live and every gap of 2+
+was not. This only matters when comparing page counts to fixture counts.
+`e2e/real-prs.js` applies the same merge, and it's why
+`django/django#21696` shows 22 hunks on the page but 24 in the fixture.
+
+### Not verified yet
+
+- React UI **split view**. Switching to it changes the signed-in
+  account's saved diff preference, so it wasn't toggled on the account
+  used for this check.
+- React UI summary-bar sticky offset and overlap. There's no
+  `.pr-toolbar`, so the bar sticks at `top: 0`, and it wasn't checked
+  against GitHub's own sticky file headers.
+- React UI behavior on PRs with hundreds of files.
+
 ## Known gaps / not yet verified
 
 - **Binary files, renames, mode-only changes**: not captured in this
@@ -359,6 +489,20 @@ repo tested here happened to hit.
   DevTools console on a live PR's Files changed tab.
 
 ## Quick re-inspection snippet
+
+React UI (`/changes`):
+
+```js
+const t = document.querySelector('table[aria-label^="Diff for: "]');
+console.log({
+  path: t.getAttribute('aria-label'),
+  hunks: [...t.querySelectorAll('td.diff-hunk-cell')].filter((td) => td.textContent.trim()).length,
+  additions: t.querySelectorAll('code.diff-text.addition .diff-text-inner').length,
+  deletions: t.querySelectorAll('code.diff-text.deletion .diff-text-inner').length,
+});
+```
+
+Classic UI (`/files`):
 
 ```js
 const f = document.querySelectorAll('.file')[0];
