@@ -1,0 +1,185 @@
+diff --git a/src/V3AstNodeOther.h b/src/V3AstNodeOther.h
+index 7e71994275b..48e3d276d13 100644
+--- a/src/V3AstNodeOther.h
++++ b/src/V3AstNodeOther.h
+@@ -81,7 +81,7 @@ class AstNodeFTask VL_NOT_FINAL : public AstNode {
+     bool m_isConstructor : 1;  // Class constructor
+     bool m_isHideLocal : 1;  // Verilog local
+     bool m_isHideProtected : 1;  // Verilog protected
+-    bool m_pure : 1;  // DPI import pure (vs. virtual pure)
++    bool m_dpiPure : 1;  // DPI import pure (vs. virtual pure)
+     bool m_pureVirtual : 1;  // Pure virtual
+     bool m_recursive : 1;  // Recursive or part of recursion
+     bool m_underGenerate : 1;  // Under generate (for warning)
+@@ -107,7 +107,7 @@ class AstNodeFTask VL_NOT_FINAL : public AstNode {
+         , m_isConstructor{false}
+         , m_isHideLocal{false}
+         , m_isHideProtected{false}
+-        , m_pure{false}
++        , m_dpiPure{false}
+         , m_pureVirtual{false}
+         , m_recursive{false}
+         , m_underGenerate{false}
+@@ -122,7 +122,9 @@ class AstNodeFTask VL_NOT_FINAL : public AstNode {
+     void dump(std::ostream& str = std::cout) const override;
+     string name() const override VL_MT_STABLE { return m_name; }  // * = Var name
+     bool maybePointedTo() const override { return true; }
+-    bool isGateOptimizable() const override { return !((m_dpiExport || m_dpiImport) && !m_pure); }
++    bool isGateOptimizable() const override {
++        return !((m_dpiExport || m_dpiImport) && !m_dpiPure);
++    }
+     // {AstFunc only} op1 = Range output variable
+     void name(const string& name) override { m_name = name; }
+     string cname() const { return m_cname; }
+@@ -162,8 +164,8 @@ class AstNodeFTask VL_NOT_FINAL : public AstNode {
+     void isHideLocal(bool flag) { m_isHideLocal = flag; }
+     bool isHideProtected() const { return m_isHideProtected; }
+     void isHideProtected(bool flag) { m_isHideProtected = flag; }
+-    void pure(bool flag) { m_pure = flag; }
+-    bool pure() const { return m_pure; }
++    void dpiPure(bool flag) { m_dpiPure = flag; }
++    bool dpiPure() const { return m_dpiPure; }
+     void pureVirtual(bool flag) { m_pureVirtual = flag; }
+     bool pureVirtual() const { return m_pureVirtual; }
+     void recursive(bool flag) { m_recursive = flag; }
+@@ -578,7 +580,7 @@ class AstCFunc final : public AstNode {
+     bool m_isInline : 1;  // Inline function
+     bool m_isVirtual : 1;  // Virtual function
+     bool m_entryPoint : 1;  // User may call into this top level function
+-    bool m_pure : 1;  // Pure function
++    bool m_dpiPure : 1;  // Pure DPI function
+     bool m_dpiContext : 1;  // Declared as 'context' DPI import/export function
+     bool m_dpiExportDispatcher : 1;  // This is the DPI export entry point (i.e.: called by user)
+     bool m_dpiExportImpl : 1;  // DPI export implementation (called from DPI dispatcher via lookup)
+@@ -607,7 +609,7 @@ class AstCFunc final : public AstNode {
+         m_isVirtual = false;
+         m_needProcess = false;
+         m_entryPoint = false;
+-        m_pure = false;
++        m_dpiPure = false;
+         m_dpiContext = false;
+         m_dpiExportDispatcher = false;
+         m_dpiExportImpl = false;
+@@ -678,8 +680,8 @@ class AstCFunc final : public AstNode {
+     void setNeedProcess() { m_needProcess = true; }
+     bool entryPoint() const { return m_entryPoint; }
+     void entryPoint(bool flag) { m_entryPoint = flag; }
+-    bool pure() const { return m_pure; }
+-    void pure(bool flag) { m_pure = flag; }
++    bool dpiPure() const { return m_dpiPure; }
++    void dpiPure(bool flag) { m_dpiPure = flag; }
+     bool dpiContext() const { return m_dpiContext; }
+     void dpiContext(bool flag) { m_dpiContext = flag; }
+     bool dpiExportDispatcher() const VL_MT_SAFE { return m_dpiExportDispatcher; }
+diff --git a/src/V3AstNodes.cpp b/src/V3AstNodes.cpp
+index 7049327333d..65eed3af0ee 100644
+--- a/src/V3AstNodes.cpp
++++ b/src/V3AstNodes.cpp
+@@ -64,7 +64,7 @@ void AstNodeFTaskRef::cloneRelink() {
+ bool AstNodeFTaskRef::isPure() const {
+     // TODO: For non-DPI functions we could traverse the AST of function's body to determine
+     // pureness.
+-    return this->taskp() && this->taskp()->dpiImport() && this->taskp()->pure();
++    return this->taskp() && this->taskp()->dpiImport() && this->taskp()->dpiPure();
+ }
+ 
+ bool AstNodeFTaskRef::isGateOptimizable() const { return m_taskp && m_taskp->isGateOptimizable(); }
+@@ -127,7 +127,7 @@ const char* AstNodeCCall::broken() const {
+     BROKEN_RTN(m_funcp && !m_funcp->brokeExists());
+     return nullptr;
+ }
+-bool AstNodeCCall::isPure() const { return funcp()->pure(); }
++bool AstNodeCCall::isPure() const { return funcp()->dpiPure(); }
+ 
+ string AstCCall::selfPointerProtect(bool useSelfForThis) const {
+     const string& sp
+@@ -2299,7 +2299,7 @@ void AstCFile::dump(std::ostream& str) const {
+ void AstCFunc::dump(std::ostream& str) const {
+     this->AstNode::dump(str);
+     if (slow()) str << " [SLOW]";
+-    if (pure()) str << " [PURE]";
++    if (dpiPure()) str << " [DPIPURE]";
+     if (isStatic()) str << " [STATIC]";
+     if (dpiExportDispatcher()) str << " [DPIED]";
+     if (dpiExportImpl()) str << " [DPIEI]";
+diff --git a/src/V3Life.cpp b/src/V3Life.cpp
+index c3ff35ebaab..0b5f83122dd 100644
+--- a/src/V3Life.cpp
++++ b/src/V3Life.cpp
+@@ -432,7 +432,7 @@ class LifeVisitor final : public VNVisitor {
+         // UINFO(4, "  CFUNC " << nodep << endl);
+         if (!m_tracingCall && !nodep->entryPoint()) return;
+         m_tracingCall = false;
+-        if (nodep->dpiImportPrototype() && !nodep->pure()) {
++        if (nodep->dpiImportPrototype() && !nodep->dpiPure()) {
+             m_sideEffect = true;  // If appears on assign RHS, don't ever delete the assignment
+         }
+         iterateChildren(nodep);
+diff --git a/src/V3Partition.cpp b/src/V3Partition.cpp
+index ebc271a716a..37a8b923dd5 100644
+--- a/src/V3Partition.cpp
++++ b/src/V3Partition.cpp
+@@ -1840,8 +1840,8 @@ class DpiImportCallVisitor final : public VNVisitor {
+         if (!m_tracingCall) return;
+         m_tracingCall = false;
+         if (nodep->dpiImportWrapper()) {
+-            if (nodep->pure() ? !v3Global.opt.threadsDpiPure()
+-                              : !v3Global.opt.threadsDpiUnpure()) {
++            if (nodep->dpiPure() ? !v3Global.opt.threadsDpiPure()
++                                 : !v3Global.opt.threadsDpiUnpure()) {
+                 m_hasDpiHazard = true;
+             }
+         }
+diff --git a/src/V3Task.cpp b/src/V3Task.cpp
+index 44449ae67bb..b5af4194288 100644
+--- a/src/V3Task.cpp
++++ b/src/V3Task.cpp
+@@ -639,7 +639,7 @@ class TaskVisitor final : public VNVisitor {
+         // Return fancy signature for DPI function. Variable names are not included so differences
+         // in only argument names will not matter (as required by the standard).
+         string dpiproto;
+-        if (nodep->pure()) dpiproto += "pure ";
++        if (nodep->dpiPure()) dpiproto += "pure ";
+         if (nodep->dpiContext()) dpiproto += "context ";
+         dpiproto += rtnvarp ? rtnvarp->dpiArgType(true, true) : "void";
+         dpiproto += " " + nodep->cname() + " (";
+@@ -908,7 +908,7 @@ class TaskVisitor final : public VNVisitor {
+         funcp->entryPoint(false);
+         funcp->isMethod(false);
+         funcp->protect(false);
+-        funcp->pure(nodep->pure());
++        funcp->dpiPure(nodep->dpiPure());
+         // Add DPI Import to top, since it's a global function
+         m_topScopep->scopep()->addBlocksp(funcp);
+         makePortList(nodep, funcp);
+@@ -1183,7 +1183,7 @@ class TaskVisitor final : public VNVisitor {
+             cfuncp->isStatic(false);
+         }
+         cfuncp->isVirtual(nodep->isVirtual());
+-        cfuncp->pure(nodep->pure());
++        cfuncp->dpiPure(nodep->dpiPure());
+         if (nodep->name() == "new") {
+             cfuncp->isConstructor(true);
+             AstClass* const classp = m_statep->getClassp(nodep);
+diff --git a/src/verilog.y b/src/verilog.y
+index 4e31cb1b0a0..04c4bf811ed 100644
+--- a/src/verilog.y
++++ b/src/verilog.y
+@@ -4624,7 +4624,7 @@ dpi_import_export<nodep>:       // ==IEEE: dpi_import_export
+                         { $$ = $5;
+                           if (*$4 != "") $5->cname(*$4);
+                           $5->dpiContext($3 == iprop_CONTEXT);
+-                          $5->pure($3 == iprop_PURE);
++                          $5->dpiPure($3 == iprop_PURE);
+                           $5->dpiImport(true);
+                           $5->dpiTraceInit($6);
+                           GRAMMARP->checkDpiVer($1, *$2); v3Global.dpi(true);
+@@ -4634,7 +4634,7 @@ dpi_import_export<nodep>:       // ==IEEE: dpi_import_export
+                         { $$ = $5;
+                           if (*$4 != "") $5->cname(*$4);
+                           $5->dpiContext($3 == iprop_CONTEXT);
+-                          $5->pure($3 == iprop_PURE);
++                          $5->dpiPure($3 == iprop_PURE);
+                           $5->dpiImport(true);
+                           $5->dpiTask(true);
+                           GRAMMARP->checkDpiVer($1, *$2); v3Global.dpi(true);

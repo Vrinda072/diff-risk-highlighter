@@ -512,7 +512,11 @@ src/risk-engine.js               Risk detection engine (DOM-free, unit-testable)
 docs/github-diff-dom.md          Notes on GitHub's diff DOM/selectors
 test/risk-engine.unit.test.js    Heuristic-by-heuristic unit tests
 test/risk-engine.real-diffs.test.js  Calibration/regression tests against real PRs
-test/fixtures/real-prs/          Raw diffs from real merged PRs, used by the above
+test/fixtures/real-prs/          Raw diffs from 42 real merged PRs, used by the above; README lists them by bug category
+test/fixtures/real-prs/metadata.json  Per fixture: repo, PR, category, license, and which hunks carry the real fix
+test/fixtures-metadata.test.js   Checks metadata.json matches the diffs (every fixture listed, every fix hunk exists)
+scripts/fetch-fixtures.js        Collects new fixtures via the gh CLI: `search` for candidates, `fetch` a vetted manifest
+scripts/fixtures-manifest.json   The hand-vetted fixture list (with fix hunks) that `fetch` builds metadata.json from
 test/perf/synthetic-large-diff.html  Manual perf harness (150-file synthetic diff; needs a real DOM, not part of `npm test`)
 test/dom/pull/999/files/self-trigger-regression.html  Loads the real content.js/risk-engine.js and asserts the observer doesn't retrigger itself
 playwright.config.js             E2E config (npm run test:e2e); kept out of test/ so npm test stays fast and browser-free

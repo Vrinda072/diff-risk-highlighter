@@ -1,0 +1,916 @@
+[
+  {
+    "fixture": "arkime_authbypass.diff",
+    "repo": "arkime/arkime",
+    "number": 4263,
+    "url": "https://github.com/arkime/arkime/pull/4263",
+    "title": "Fix cyberchef packet endpoint authorization bypass",
+    "category": "auth-security",
+    "summary": "JS: CyberChef packet route's permission list gains hidePcap/disablePcapDownload.",
+    "license": "Apache-2.0",
+    "mergedAt": "2026-09-14T20:04:01Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "viewer/viewer.js",
+        "header": "@@ -2213,7 +2213,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "cais_csrf.diff",
+    "repo": "puppe1990/cais",
+    "number": 180,
+    "url": "https://github.com/puppe1990/cais/pull/180",
+    "title": "fix(csrf): __Host- prefixed CSRF cookie in production",
+    "category": "auth-security",
+    "summary": "CSRF cookie fixation: production cookie gets the __Host- prefix, reads fall back to the old name.",
+    "license": "MIT",
+    "mergedAt": "2026-08-25T12:36:41Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "pkg/cais/csrf/csrf.go",
+        "header": "@@ -18,8 +18,22 @@"
+      },
+      {
+        "file": "pkg/cais/csrf/csrf.go",
+        "header": "@@ -41,7 +55,7 @@"
+      },
+      {
+        "file": "pkg/cais/csrf/csrf.go",
+        "header": "@@ -54,7 +68,7 @@"
+      },
+      {
+        "file": "pkg/cais/csrf/csrf.go",
+        "header": "@@ -63,8 +77,12 @@"
+      },
+      {
+        "file": "pkg/cais/csrf/csrf.go",
+        "header": "@@ -85,7 +103,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "dolibarr_idor.diff",
+    "repo": "Dolibarr/dolibarr",
+    "number": 40406,
+    "url": "https://github.com/Dolibarr/dolibarr/pull/40406",
+    "title": "Fix authorization bypass in clonetasks mass action (CVE-2026-77923 bypass)",
+    "category": "auth-security",
+    "summary": "PHP IDOR: clone-tasks mass action now authorizes each source task's project (CVE bypass).",
+    "license": "GPL-3.0",
+    "mergedAt": "2026-09-14T01:15:30Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "htdocs/core/actions_massactions.inc.php",
+        "header": "@@ -1960,8 +1960,28 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "edubadges_idor.diff",
+    "repo": "edubadges/edubadges-server",
+    "number": 386,
+    "url": "https://github.com/edubadges/edubadges-server/pull/386",
+    "title": "EB-25 Fix missing permission check",
+    "category": "auth-security",
+    "summary": "Python/Django IDOR: terms-agreement lookup scoped to request.user; badge-instance owner permission added.",
+    "license": "AGPL-3.0",
+    "mergedAt": "2026-09-24T08:09:40Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "apps/badgeuser/api.py",
+        "header": "@@ -153,7 +154,10 @@"
+      },
+      {
+        "file": "apps/issuer/api.py",
+        "header": "@@ -197,7 +198,7 @@"
+      },
+      {
+        "file": "apps/issuer/permissions.py",
+        "header": "@@ -79,3 +79,12 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "openrelik_authbypass.diff",
+    "repo": "openrelik/openrelik-server",
+    "number": 229,
+    "url": "https://github.com/openrelik/openrelik-server/pull/229",
+    "title": "fix Authorization Bypass via Falsy folder_id",
+    "category": "auth-security",
+    "summary": "Python: `if folder_id:` → `if folder_id is not None:` — folder_id=0 skipped the access check.",
+    "license": "Apache-2.0",
+    "mergedAt": "2026-09-23T13:31:36Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "src/datastores/sql/crud/authz.py",
+        "header": "@@ -134,7 +134,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "orchard_missingauthz.diff",
+    "repo": "OrchardCMS/OrchardCore",
+    "number": 19914,
+    "url": "https://github.com/OrchardCMS/OrchardCore/pull/19914",
+    "title": "Add missing authorization to Elasticsearch AdminController (Lombiq Technologies: OCORE-292)",
+    "category": "auth-security",
+    "summary": "C#: missing AuthorizeAsync/Forbid guards added to two Elasticsearch admin actions.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2026-09-21T05:32:50Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "src/OrchardCore.Modules/OrchardCore.Elasticsearch/Controllers/AdminController.cs",
+        "header": "@@ -65,6 +65,11 @@"
+      },
+      {
+        "file": "src/OrchardCore.Modules/OrchardCore.Elasticsearch/Controllers/AdminController.cs",
+        "header": "@@ -86,6 +91,11 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "partage_xss.diff",
+    "repo": "deltablot/partage",
+    "number": 8,
+    "url": "https://github.com/deltablot/partage/pull/8",
+    "title": "security: fix stored xss",
+    "category": "auth-security",
+    "summary": "XSS: download responses get Content-Disposition/nosniff/CSP headers.",
+    "license": "MIT",
+    "mergedAt": "2026-08-21T13:34:16Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "src/main.go",
+        "header": "@@ -233,7 +233,12 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "passkey_authbypass.diff",
+    "repo": "stellar/passkey-kit",
+    "number": 4,
+    "url": "https://github.com/stellar/passkey-kit/pull/4",
+    "title": "fix: close policy signer authorization bypass",
+    "category": "auth-security",
+    "summary": "Authorization bypass: policy signers could skip their own policy on self-removal; missing policies now fail closed.",
+    "license": "MIT",
+    "mergedAt": "2026-08-19T15:41:57Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "contracts/smart-wallet/src/context.rs",
+        "header": "@@ -35,15 +35,6 @@"
+      },
+      {
+        "file": "contracts/smart-wallet/src/context.rs",
+        "header": "@@ -165,15 +156,18 @@"
+      },
+      {
+        "file": "contracts/smart-wallet/src/lib.rs",
+        "header": "@@ -380,29 +380,19 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "vip_sqli.diff",
+    "repo": "virtual-imaging-platform/VIP-portal",
+    "number": 698,
+    "url": "https://github.com/virtual-imaging-platform/VIP-portal/pull/698",
+    "title": "fix sql injection",
+    "category": "auth-security",
+    "summary": "SQL injection: string-concatenated query rebuilt as a parameterized query.",
+    "license": "NOASSERTION",
+    "mergedAt": "2026-08-21T14:05:56Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "vip-core/src/main/java/fr/insalyon/creatis/vip/core/server/dao/mysql/UsersGroupsData.java",
+        "header": "@@ -160,39 +162,38 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "django_deadcode.diff",
+    "repo": "django/django",
+    "number": 18925,
+    "url": "https://github.com/django/django/pull/18925",
+    "title": "Fixed #36007 -- Removed dead code from URLValidator.",
+    "category": "dead-code-removal",
+    "summary": "try/except/else block the author confirmed unreachable, removed.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2024-12-13T15:10:34Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "django/core/validators.py",
+        "header": "@@ -177,31 +175,17 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "numpy_unreachable.diff",
+    "repo": "numpy/numpy",
+    "number": 32143,
+    "url": "https://github.com/numpy/numpy/pull/32143",
+    "title": "MAINT: remove unreachable branch in _byte_order_str",
+    "category": "dead-code-removal",
+    "summary": "`if` branch marked `# TODO: this path can never be reached`, removed.",
+    "license": "NOASSERTION",
+    "mergedAt": "2026-07-31T02:50:18Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "numpy/_core/_dtype.py",
+        "header": "@@ -163,16 +163,12 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "pandas_deadcode.diff",
+    "repo": "pandas-dev/pandas",
+    "number": 66045,
+    "url": "https://github.com/pandas-dev/pandas/pull/66045",
+    "title": "CLN: remove genuinely-unreachable dead code (GH#27396)",
+    "category": "dead-code-removal",
+    "summary": "Genuinely unreachable conditional branches removed across five files.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2026-06-27T16:25:17Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "pandas/core/groupby/categorical.py",
+        "header": "@@ -69,8 +69,6 @@"
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "header": "@@ -5448,11 +5448,8 @@"
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "header": "@@ -1456,10 +1456,6 @@"
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "header": "@@ -975,39 +975,17 @@"
+      },
+      {
+        "file": "pandas/core/internals/managers.py",
+        "header": "@@ -2301,9 +2301,6 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "stelinter_depbump.diff",
+    "repo": "Firelight-Innovations/STE-Linter",
+    "number": 18,
+    "url": "https://github.com/Firelight-Innovations/STE-Linter/pull/18",
+    "title": "Bump: Bump actions/setup-python from 5 to 7",
+    "category": "dependency-bump",
+    "summary": "CI action version bumps.",
+    "license": "Apache-2.0",
+    "mergedAt": "2026-08-26T02:23:32Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "django_feature.diff",
+    "repo": "django/django",
+    "number": 16012,
+    "url": "https://github.com/django/django/pull/16012",
+    "title": "Fixed #12090 -- Show admin actions on the edit pages too",
+    "category": "feature",
+    "summary": "Admin actions on edit pages: ordinary mixed-signal feature PR, smoke test only.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2026-05-13T15:31:29Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "alacritty_offbyone.diff",
+    "repo": "alacritty/alacritty",
+    "number": 9027,
+    "url": "https://github.com/alacritty/alacritty/pull/9027",
+    "title": "Fix off-by-one in ParagraphUp",
+    "category": "off-by-one",
+    "summary": "Rust range bound `..` → `..=` in vi-mode motion.",
+    "license": "Apache-2.0",
+    "mergedAt": "2026-08-17T19:36:06Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "alacritty_terminal/src/vi_mode.rs",
+        "header": "@@ -161,7 +161,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "dill_offbyone.diff",
+    "repo": "uqfoundation/dill",
+    "number": 651,
+    "url": "https://github.com/uqfoundation/dill/pull/651",
+    "title": "fix fencepost error when getting source inside decorator in interpreter (fixes #603)",
+    "category": "off-by-one",
+    "summary": "Python: `range(1, lbuf)` → `range(1, lbuf+1)` drops the last history line.",
+    "license": "NOASSERTION",
+    "mergedAt": "2024-07-09T23:29:55Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "dill/source.py",
+        "header": "@@ -150,7 +150,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "franzgo_offbyone.diff",
+    "repo": "twmb/franz-go",
+    "number": 381,
+    "url": "https://github.com/twmb/franz-go/pull/381",
+    "title": "Fencepost error in pushAndValidate",
+    "category": "off-by-one",
+    "summary": "Go: a stray `+ 1` removed from the next-sequence-number calculation.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2023-03-09T14:56:17Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "pkg/kfake/pid.go",
+        "header": "@@ -75,7 +75,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "mglet_offbyone.diff",
+    "repo": "kmturbulenz/mglet-base",
+    "number": 226,
+    "url": "https://github.com/kmturbulenz/mglet-base/pull/226",
+    "title": "Off-by-one bugfix",
+    "category": "off-by-one",
+    "summary": "Fortran array index fixed by appending `- 1` (added token, not an operator swap).",
+    "license": "Apache-2.0",
+    "mergedAt": "2026-08-18T12:53:16Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "src/core/fieldhelper_mod.F90",
+        "header": "@@ -71,7 +71,7 @@"
+      },
+      {
+        "file": "src/core/fieldhelper_mod.F90",
+        "header": "@@ -134,7 +134,7 @@"
+      },
+      {
+        "file": "src/flow/pressuresolver_mod.F90",
+        "header": "@@ -951,7 +951,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "moltenvk_offbyone.diff",
+    "repo": "KhronosGroup/MoltenVK",
+    "number": 2602,
+    "url": "https://github.com/KhronosGroup/MoltenVK/pull/2602",
+    "title": "MVKPhysicalDevice: Fix fencepost error.",
+    "category": "off-by-one",
+    "summary": "Objective-C++: one-line `<` → `<=` on a descriptor-count limit.",
+    "license": "Apache-2.0",
+    "mergedAt": "2025-09-03T02:31:48Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm",
+        "header": "@@ -4291,7 +4291,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "nextjs_offbyone.diff",
+    "repo": "vercel/next.js",
+    "number": 93524,
+    "url": "https://github.com/vercel/next.js/pull/93524",
+    "title": "[turbopack] correct a fencepost error in our inline string descision",
+    "category": "off-by-one",
+    "summary": "Rust: inline-string length checks `<` → `<=` (and `>=` → `>`) against MAX_INLINE_LEN.",
+    "license": "MIT",
+    "mergedAt": "2026-05-06T02:54:52Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "turbopack/crates/turbo-rcstr/src/dynamic.rs",
+        "header": "@@ -58,7 +58,7 @@"
+      },
+      {
+        "file": "turbopack/crates/turbo-rcstr/src/dynamic.rs",
+        "header": "@@ -113,7 +113,7 @@"
+      },
+      {
+        "file": "turbopack/crates/turbo-rcstr/src/lib.rs",
+        "header": "@@ -169,10 +169,10 @@"
+      },
+      {
+        "file": "turbopack/crates/turbo-rcstr/src/lib.rs",
+        "header": "@@ -643,7 +643,7 @@"
+      },
+      {
+        "file": "turbopack/crates/turbo-rcstr/src/lib.rs",
+        "header": "@@ -658,7 +658,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "renewables_offbyone.diff",
+    "repo": "microsoft/global-renewables-watch",
+    "number": 12,
+    "url": "https://github.com/microsoft/global-renewables-watch/pull/12",
+    "title": "Fix off-by-one bug in wind dataset chip sampling",
+    "category": "off-by-one",
+    "summary": "Python: random-crop upper bounds gain `+ 1` (added token, not an operator swap).",
+    "license": "MIT",
+    "mergedAt": "2026-09-25T20:46:06Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "src/wind/data/streaming_dataset.py",
+        "header": "@@ -169,16 +169,16 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "nats_race.diff",
+    "repo": "nats-io/nats-server",
+    "number": 8647,
+    "url": "https://github.com/nats-io/nats-server/pull/8647",
+    "title": "Fix data race in consumer leader stepdown request",
+    "category": "race-condition",
+    "summary": "Go: consumer-assignment map lookup moved inside the existing RLock (check-then-act).",
+    "license": "Apache-2.0",
+    "mergedAt": "2026-09-25T15:57:58Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "server/jetstream_api.go",
+        "header": "@@ -2395,6 +2395,10 @@"
+      },
+      {
+        "file": "server/jetstream_api.go",
+        "header": "@@ -2411,10 +2415,6 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "nuke_race.diff",
+    "repo": "kean/Nuke",
+    "number": 998,
+    "url": "https://github.com/kean/Nuke/pull/998",
+    "title": "Fix a data race on `DataLoader/delegate`",
+    "category": "race-condition",
+    "summary": "Swift: `nonisolated(unsafe) var delegate` guarded by OSAllocatedUnfairLock (plus CHANGELOG and a regression test).",
+    "license": "MIT",
+    "mergedAt": "2026-09-24T23:33:00Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "Sources/Nuke/Loading/DataLoader.swift",
+        "header": "@@ -36,10 +36,12 @@"
+      },
+      {
+        "file": "Sources/Nuke/Loading/DataLoader.swift",
+        "header": "@@ -169,7 +171,13 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "pdns_race.diff",
+    "repo": "PowerDNS/pdns",
+    "number": 18066,
+    "url": "https://github.com/PowerDNS/pdns/pull/18066",
+    "title": "fix(auth): prevent data race when updating EDNS cookie secrets",
+    "category": "race-condition",
+    "summary": "C++: EDNS cookie secrets become LockGuarded<>, every access goes through a lock.",
+    "license": "GPL-2.0",
+    "mergedAt": "2026-09-24T08:42:48Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "pdns/auth-main.cc",
+        "header": "@@ -856,7 +856,9 @@"
+      },
+      {
+        "file": "pdns/auth-main.cc",
+        "header": "@@ -868,7 +870,7 @@"
+      },
+      {
+        "file": "pdns/auth-main.cc",
+        "header": "@@ -877,10 +879,10 @@"
+      },
+      {
+        "file": "pdns/dnspacket.cc",
+        "header": "@@ -56,8 +56,8 @@"
+      },
+      {
+        "file": "pdns/dnspacket.cc",
+        "header": "@@ -354,7 +354,7 @@"
+      },
+      {
+        "file": "pdns/dnspacket.cc",
+        "header": "@@ -631,7 +631,7 @@"
+      },
+      {
+        "file": "pdns/dnspacket.hh",
+        "header": "@@ -170,8 +170,8 @@"
+      },
+      {
+        "file": "pdns/dynhandler.cc",
+        "header": "@@ -129,33 +129,36 @@"
+      },
+      {
+        "file": "pdns/dynhandler.cc",
+        "header": "@@ -164,11 +167,11 @@"
+      },
+      {
+        "file": "pdns/dynhandler.cc",
+        "header": "@@ -176,12 +179,12 @@"
+      },
+      {
+        "file": "pdns/dynhandler.cc",
+        "header": "@@ -190,11 +193,11 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "redisearch_race.diff",
+    "repo": "RediSearch/RediSearch",
+    "number": 11547,
+    "url": "https://github.com/RediSearch/RediSearch/pull/11547",
+    "title": "[MOD-18900] Fix data race on thread-pool startup flags",
+    "category": "race-condition",
+    "summary": "C: thread-pool startup flags `volatile bool` → `atomic_bool`.",
+    "license": "NOASSERTION",
+    "mergedAt": "2026-09-24T12:05:32Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "deps/thpool/thpool.c",
+        "header": "@@ -140,7 +140,7 @@"
+      },
+      {
+        "file": "deps/thpool/thpool.c",
+        "header": "@@ -317,7 +317,7 @@"
+      },
+      {
+        "file": "deps/thpool/thpool.c",
+        "header": "@@ -352,7 +352,7 @@"
+      },
+      {
+        "file": "deps/thpool/thpool.c",
+        "header": "@@ -651,8 +651,10 @@"
+      },
+      {
+        "file": "deps/thpool/thpool.c",
+        "header": "@@ -660,9 +662,9 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "spp_race.diff",
+    "repo": "esrrhs/spp",
+    "number": 52,
+    "url": "https://github.com/esrrhs/spp/pull/52",
+    "title": "fix: atomic pongtime to clear CI data race",
+    "category": "race-condition",
+    "summary": "Go: shared pong timestamp read/written with atomic.LoadInt64/StoreInt64.",
+    "license": "MIT",
+    "mergedAt": "2026-09-26T08:09:32Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "proxy/common.go",
+        "header": "@@ -498,7 +498,7 @@"
+      },
+      {
+        "file": "proxy/common.go",
+        "header": "@@ -778,8 +778,8 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "squarelet_race.diff",
+    "repo": "MuckRock/squarelet",
+    "number": 777,
+    "url": "https://github.com/MuckRock/squarelet/pull/777",
+    "title": "Fix race condition",
+    "category": "race-condition",
+    "summary": "Race condition in organization billing tasks.",
+    "license": "AGPL-3.0",
+    "mergedAt": "2026-08-26T13:53:02Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "squarelet/organizations/tasks.py",
+        "header": "@@ -371,20 +371,26 @@"
+      },
+      {
+        "file": "squarelet/organizations/tasks.py",
+        "header": "@@ -658,20 +664,26 @@"
+      },
+      {
+        "file": "squarelet/organizations/tasks.py",
+        "header": "@@ -701,20 +713,26 @@"
+      },
+      {
+        "file": "squarelet/organizations/tasks.py",
+        "header": "@@ -728,20 +746,26 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "camconf_refactor.diff",
+    "repo": "MarekNajman/Cam-Conf-RPi-Prusa-Connect-Cam",
+    "number": 2,
+    "url": "https://github.com/MarekNajman/Cam-Conf-RPi-Prusa-Connect-Cam/pull/2",
+    "title": "Refactor stream_server architecture (no functional changes)",
+    "category": "refactor",
+    "summary": "Shell-script restructuring PR titled \"no functional changes\".",
+    "license": null,
+    "mergedAt": "2026-07-28T14:23:56Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "django_rename.diff",
+    "repo": "django/django",
+    "number": 21696,
+    "url": "https://github.com/django/django/pull/21696",
+    "title": "Refs #28586 -- Renamed RAISE fetch mode to FETCH_RAISE.",
+    "category": "refactor",
+    "summary": "`RAISE` → `FETCH_RAISE` renamed across ~15 files.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2026-08-03T14:27:35Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "flutter_rename.diff",
+    "repo": "flutter/devtools",
+    "number": 1282,
+    "url": "https://github.com/flutter/devtools/pull/1282",
+    "title": "Renames. No functional changes.",
+    "category": "refactor",
+    "summary": "Dart: class CpuBottomUp → HtmlCpuBottomUp across 7 files.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2019-11-01T20:08:25Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "openroad_rename.diff",
+    "repo": "The-OpenROAD-Project/OpenROAD",
+    "number": 8475,
+    "url": "https://github.com/The-OpenROAD-Project/OpenROAD/pull/8475",
+    "title": "gpl: rename power domain variables to region, no functional change",
+    "category": "refactor",
+    "summary": "C++: power-domain variables renamed to region — edge case: also changes a user-visible log string and its golden test output.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2025-09-30T21:04:26Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "passcore_prettier.diff",
+    "repo": "EastCentralRegionalLibrary/passcore",
+    "number": 150,
+    "url": "https://github.com/EastCentralRegionalLibrary/passcore/pull/150",
+    "title": "Reformat ClientApp with Prettier",
+    "category": "refactor",
+    "summary": "Pure Prettier reformat of TSX, including trailing-comma insertions.",
+    "license": "MIT",
+    "mergedAt": "2026-08-18T06:11:01Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "qgis_rename.diff",
+    "repo": "qgis/QGIS",
+    "number": 39344,
+    "url": "https://github.com/qgis/QGIS/pull/39344",
+    "title": "Server landing page: rename vars, no functional changes",
+    "category": "refactor",
+    "summary": "C++: static variables renamed; no functional change.",
+    "license": "GPL-2.0",
+    "mergedAt": "2020-10-13T12:48:41Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "verilator_rename.diff",
+    "repo": "verilator/verilator",
+    "number": 4461,
+    "url": "https://github.com/verilator/verilator/pull/4461",
+    "title": "Internals: Rename pure to dpiPure. No functional change.",
+    "category": "refactor",
+    "summary": "C++: `pure` → `dpiPure` accessor/field rename, one line re-wrapped.",
+    "license": "NOASSERTION",
+    "mergedAt": "2023-09-08T06:51:20Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "vespa_rename.diff",
+    "repo": "vespa-engine/vespa",
+    "number": 26180,
+    "url": "https://github.com/vespa-engine/vespa/pull/26180",
+    "title": "Cleanup HostRegistry, rename methods and fields only, no functional changes",
+    "category": "refactor",
+    "summary": "Java: HostRegistry methods and fields renamed, plus a TODO comment.",
+    "license": "Apache-2.0",
+    "mergedAt": "2023-02-24T19:21:56Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": []
+  },
+  {
+    "fixture": "flask_signature.diff",
+    "repo": "pallets/flask",
+    "number": 5818,
+    "url": "https://github.com/pallets/flask/pull/5818",
+    "title": "pass context through dispatch methods",
+    "category": "signature-change",
+    "summary": "Dispatch methods now take `ctx: AppContext`, with a deprecation shim for subclasses overriding the old signatures.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2025-11-17T16:49:53Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -73,6 +76,35 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -218,6 +250,62 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -498,7 +586,9 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -794,16 +884,16 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -868,10 +959,10 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -892,12 +983,12 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -946,15 +1038,14 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -1260,7 +1351,7 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -1288,7 +1379,7 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -1316,7 +1405,9 @@"
+      },
+      {
+        "file": "src/flask/app.py",
+        "header": "@@ -1331,16 +1422,16 @@"
+      },
+      {
+        "file": "src/flask/templating.py",
+        "header": "@@ -123,8 +119,9 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "requests_regression.diff",
+    "repo": "psf/requests",
+    "number": 4052,
+    "url": "https://github.com/psf/requests/pull/4052",
+    "title": "Fix regression in API caused by commit 85400d8d6751071ef78f042d1efa72…",
+    "category": "signature-change",
+    "summary": "Regression fix: a parameter regains its default value.",
+    "license": "Apache-2.0",
+    "mergedAt": "2017-05-27T01:34:30Z",
+    "fetchedAt": "2026-08-26",
+    "fixHunks": [
+      {
+        "file": "requests/utils.py",
+        "header": "@@ -684,7 +684,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "apm_loosenedassert.diff",
+    "repo": "elastic/apm-agent-python",
+    "number": 2636,
+    "url": "https://github.com/elastic/apm-agent-python/pull/2636",
+    "title": "tests/metrics: relax assertion on cpu percentage read from psutil",
+    "category": "weakened-test",
+    "summary": "Python: `0 < x < 1` CPU-percentage assertions lose their upper bound.",
+    "license": "BSD-3-Clause",
+    "mergedAt": "2026-05-15T08:16:01Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "tests/metrics/cpu_psutil_tests.py",
+        "header": "@@ -47,8 +47,10 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "authentik_removedassert.diff",
+    "repo": "goauthentik/authentik",
+    "number": 13371,
+    "url": "https://github.com/goauthentik/authentik/pull/13371",
+    "title": "stages/authenticator_email: remove flaky assertions",
+    "category": "weakened-test",
+    "summary": "Python: assertions that the email-device session key is cleared, removed from an auth-stage test.",
+    "license": "NOASSERTION",
+    "mergedAt": "2025-03-03T16:23:39Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "authentik/stages/authenticator_email/tests.py",
+        "header": "@@ -299,12 +299,6 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "awssdk_loosenedassert.diff",
+    "repo": "aws/aws-sdk-js-v3",
+    "number": 8212,
+    "url": "https://github.com/aws/aws-sdk-js-v3/pull/8212",
+    "title": "test(middleware-sdk-route53): loosen date in path assertion",
+    "category": "weakened-test",
+    "summary": "TypeScript: exact request-path assertion replaced by a regex.",
+    "license": "Apache-2.0",
+    "mergedAt": "2026-07-20T17:20:10Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "packages-internal/middleware-sdk-route53/src/middleware-sdk-route53.integ.spec.ts",
+        "header": "@@ -49,7 +49,7 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "jaxopt_loosenedassert.diff",
+    "repo": "google/jaxopt",
+    "number": 642,
+    "url": "https://github.com/google/jaxopt/pull/642",
+    "title": "Loosen LBFGSB test Rosenbrock assertion threshold to 1.5e-3.",
+    "category": "weakened-test",
+    "summary": "Python: optimizer-result tolerance loosened 1e-3 → 1.5e-3.",
+    "license": "Apache-2.0",
+    "mergedAt": "2026-06-04T21:38:26Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "tests/lbfgsb_test.py",
+        "header": "@@ -100,7 +100,8 @@"
+      }
+    ]
+  },
+  {
+    "fixture": "weaviate_removedassert.diff",
+    "repo": "weaviate/weaviate",
+    "number": 11801,
+    "url": "https://github.com/weaviate/weaviate/pull/11801",
+    "title": "Remove flaky assertion for dynamic index",
+    "category": "weakened-test",
+    "summary": "Go: three `assert.True(latency1 > latency2)` assertions removed as flaky.",
+    "license": "NOASSERTION",
+    "mergedAt": "2026-06-19T03:29:10Z",
+    "fetchedAt": "2026-09-26",
+    "fixHunks": [
+      {
+        "file": "adapters/repos/db/vector/dynamic/index_test.go",
+        "header": "@@ -121,7 +121,6 @@"
+      },
+      {
+        "file": "adapters/repos/db/vector/dynamic/index_test.go",
+        "header": "@@ -271,7 +270,6 @@"
+      },
+      {
+        "file": "adapters/repos/db/vector/dynamic/index_test.go",
+        "header": "@@ -866,7 +864,6 @@"
+      }
+    ]
+  }
+]

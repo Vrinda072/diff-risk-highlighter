@@ -1,0 +1,13 @@
+diff --git a/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm b/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
+index f87bdb8c1..86e4a8a15 100644
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
+@@ -4291,7 +4291,7 @@ static uint32_t mvkGetEntryProperty(io_registry_entry_t entry, CFStringRef prope
+ 
+ 	// If there is enough room for the requested size, indicate the amount available,
+ 	// otherwise indicate that the requested size cannot be supported.
+-	if (requestedCount < maxVarDescCount) {
++	if (requestedCount <= maxVarDescCount) {
+ 		pVarDescSetCountSupport->maxVariableDescriptorCount = maxVarDescCount;
+ 	} else {
+ 		pSupport->supported = false;
