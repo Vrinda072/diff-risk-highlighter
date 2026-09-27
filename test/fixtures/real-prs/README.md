@@ -21,6 +21,12 @@ the actual fix, the weakened assertion, the changed signature. It's
 empty for categories with no such hunk (`refactor`, `feature`,
 `dependency-bump`). For a refactor, *every* hunk should score low.
 
+An optional **`expectedFlags`** list (file, header, and a `why`) marks
+hunks *outside* the fix that a correct engine should still flag, so
+they aren't counted as false positives. Example: in
+stellar/passkey-kit#4, two tests weaken `assert_eq!(…, Err(…LastSigner))`
+to `assert!(….is_err())`.
+
 `fixHunks` is filled in by a person reading the diff, not inferred.
 `test/fixtures-metadata.test.js` (part of `npm test`) checks that every
 diff has exactly one entry and that every listed fix hunk exists in its
@@ -53,7 +59,7 @@ diff.
 | File | Source PR | Why it's here |
 |---|---|---|
 | `alacritty_offbyone.diff` | [alacritty/alacritty#9027](https://github.com/alacritty/alacritty/pull/9027) | One-line off-by-one fix: `..` → `..=` in a Rust range bound |
-| `mglet_offbyone.diff` | [kmturbulenz/mglet-base#226](https://github.com/kmturbulenz/mglet-base/pull/226) | Off-by-one fix in Fortran array indexing via an *added* `- 1` term (not an operator swap). The engine misses this; see README "How risk detection works" |
+| `mglet_offbyone.diff` | [kmturbulenz/mglet-base#226](https://github.com/kmturbulenz/mglet-base/pull/226) | Off-by-one fix in Fortran array indexing via an *added* `- 1` term (not an operator swap). Missed until the added/removed `± 1` check; see README "How risk detection works" |
 | `nextjs_offbyone.diff` | [vercel/next.js#93524](https://github.com/vercel/next.js/pull/93524) | Rust inline-string length checks `<` → `<=` (and `>=` → `>`) in 5 places; operator-swap shape |
 | `moltenvk_offbyone.diff` | [KhronosGroup/MoltenVK#2602](https://github.com/KhronosGroup/MoltenVK/pull/2602) | Objective-C++ one-liner, `<` → `<=` on a descriptor-count limit |
 | `renewables_offbyone.diff` | [microsoft/global-renewables-watch#12](https://github.com/microsoft/global-renewables-watch/pull/12) | Python random-crop bounds gain `+ 1`; added-token shape, like mglet |
@@ -64,7 +70,7 @@ diff.
 
 | File | Source PR | Why it's here |
 |---|---|---|
-| `squarelet_race.diff` | [MuckRock/squarelet#777](https://github.com/MuckRock/squarelet/pull/777) | Real race-condition fix, chosen deliberately as a likely **false negative**: the engine has no concurrency-bug heuristic at all |
+| `squarelet_race.diff` | [MuckRock/squarelet#777](https://github.com/MuckRock/squarelet/pull/777) | Real race-condition fix, chosen deliberately as a likely **false negative**. Still missed: the concurrency heuristic only sees synchronization being *removed* |
 | `spp_race.diff` | [esrrhs/spp#52](https://github.com/esrrhs/spp/pull/52) | Go: plain read/write → `atomic.LoadInt64`/`StoreInt64` |
 | `nats_race.diff` | [nats-io/nats-server#8647](https://github.com/nats-io/nats-server/pull/8647) | Go check-then-act: a map lookup moved inside the existing `RLock` |
 | `redisearch_race.diff` | [RediSearch/RediSearch#11547](https://github.com/RediSearch/RediSearch/pull/11547) | C: thread-startup flags `volatile bool` → `atomic_bool` |

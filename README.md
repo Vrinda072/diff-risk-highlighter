@@ -67,11 +67,14 @@ or `medium`):
 | Signal | Level | Why |
 |---|---|---|
 | SQL built via string concatenation | high | A SQL verb (`SELECT`/`INSERT`/`UPDATE`/`DELETE`) and a clause (`FROM`/`WHERE`/`INTO`/`VALUES`) *and* string-concatenation syntax, all within a few lines of each other. Modeled on a real SQL-injection fix. |
-| Comparison/range boundary changed | high | A line edited into an almost-identical line differing in exactly one token, where that token is a confusable operator pair (`<`/`<=`, `..`/`..=`, `==`/`===`, …) or an integer literal shifted by 1. Classic off-by-one shape — modeled on a real 1-line Rust fix (`..` → `..=`) that a line-count heuristic would've waved through as trivial. |
+| Comparison/range boundary changed | high | A line edited into an almost-identical line differing in exactly one token, where that token is a confusable operator pair (`<`/`<=`, `..`/`..=`, `==`/`===`, …) or an integer literal shifted by 1. Classic off-by-one shape — modeled on a real 1-line Rust fix (`..` → `..=`) that a line-count heuristic would've waved through as trivial. Also catches the other shape: a `+ 1`/`- 1` *added to or removed from* an index/bound expression on an otherwise unchanged line (strings and comments ignored; the line must contain a subscript, a comparison, or a bound-like name such as `idx`/`len`/`size`/`end`/`range`). |
 | Removed exception handling | high | `try`/`catch`/`except`/`finally` occurrences *decrease* between removed and added lines (not just "mentioned in removedLines" — a reformatted-but-kept try/catch doesn't count). |
+| Removed synchronization | high | Fewer lock/mutex/`synchronized`/atomic uses (including lock-named variables like `self._lock`) on the added side than the removed side. Swapping one primitive for another (`volatile` → `atomic_bool`) nets out. |
 | Security-sensitive keywords | high | `password`, `jwt`, `csrf`, `authenticat(e/ion)`, `Content-Security-Policy`, etc. Deliberately excludes generic words like `admin`, `token`, `session`, `auth\*` that collided constantly with ordinary code during calibration (see limitations). |
 | Removed conditional branch | medium (high if it also removes a `return`/`raise`/`throw`, or spans ≥3 conditional lines) | A static heuristic can't prove a removed `if`/`else`/`switch` was truly dead code — it can only tell you to go check, which is exactly what happened in three real "dead code cleanup" PRs used as fixtures here. |
 | Function signature changed | medium | A `def`/`function`/`fn`/`func` declaration with the same name appears on both sides with a different parameter list — catches things as small as a single added default value. |
+| Weakened or removed test assertion | medium | Test files only: fewer assertions, a strict matcher swapped for a looser one (`toEqual` → `toBeTruthy`, `assert_eq!` → `assert!`), an exact expected string replaced by a pattern, a bound/tolerance moved the permissive way, an assertion losing a comparison, or a newly skipped test. An expected value that merely *changes* isn't flagged. |
+| New check-then-act in concurrent code | medium | A membership check followed by a write to the same container (`if k not in c` … `c[k] =`, `!m.has(k)` … `m.set(k`, Go's `_, ok := m[k]`) in a hunk that visibly runs concurrently (threads, goroutines, async, executors) and adds no lock. Deliberately narrow. |
 | Large hunk, no other signal | medium | Fallback for hunks over ~40 changed lines that didn't trip anything more specific. |
 
 Anything left over is **low** risk.
@@ -114,10 +117,10 @@ output read hunk-by-hunk, the same way a reviewer would judge whether
 the flags make sense. That pass found three real gaps. They weren't
 fixed at the time, on purpose, since fixing a heuristic without more
 real-PR calibration tends to trade one false positive/negative for
-another. The third has since been fixed and checked against all 17
-fixtures:
+another. All three have since been addressed and checked against the
+42-fixture set (see [test/fixtures/real-prs/README.md](test/fixtures/real-prs/README.md)):
 
-- **A same-shape, different-cause off-by-one is missed.**
+- **Fixed: a same-shape, different-cause off-by-one was missed.**
   [`mglet_offbyone.diff`](test/fixtures/real-prs/mglet_offbyone.diff)
   ([kmturbulenz/mglet-base#226](https://github.com/kmturbulenz/mglet-base/pull/226))
   fixes a real indexing bug by *appending* `- 1` to an array-index
@@ -127,7 +130,11 @@ fixtures:
   lines (`<` → `<=`, `2` → `3`) — it's built to catch an operator or
   literal being *swapped*, not new tokens being *added*. This PR scores
   entirely `low`. A real off-by-one fix, invisible to the engine.
-- **No heuristic for concurrency bugs at all.**
+  **Now:** an added or removed `± 1` in an index/bound expression is
+  flagged high. That catches this PR (3/3 hunks) and the three other
+  real examples of the shape (dill#651, global-renewables-watch#12,
+  franz-go#381), with no change to any other fixture.
+- **Partly addressed: there was no heuristic for concurrency bugs at all.**
   [`squarelet_race.diff`](test/fixtures/real-prs/squarelet_race.diff)
   ([MuckRock/squarelet#777](https://github.com/MuckRock/squarelet/pull/777))
   is a genuine race-condition fix and gets zero `high` flags. There's
@@ -135,6 +142,13 @@ fixtures:
   (missing lock/check-then-act patterns, shared mutable state) —
   because nothing was ever built to. This isn't a mistuned threshold,
   it's a category the heuristics don't cover yet.
+  **Now:** a first, conservative heuristic flags *removed*
+  synchronization and new unlocked check-then-act patterns. It still
+  scores all six race-*fix* fixtures the same as before, because fixes
+  *add* synchronization. Run on those fixes reversed (re-introducing
+  each race) it flags 4 of the 6, and it flags nothing in the other 36
+  fixtures either way. squarelet#777 and nats-server#8647 (a lookup
+  moved *inside* an existing lock) remain misses.
 - **Fixed: prose and version bumps diluted a correct flag on the PR
   that matters most.**
   [`passkey_authbypass.diff`](test/fixtures/real-prs/passkey_authbypass.diff)
@@ -457,14 +471,12 @@ with the UI it actually saw.
   the list (e.g. `pwd` instead of `password`, raw SQL built with
   `String.format` instead of `+` concatenation). Widening them safely
   needs more real-PR calibration, not just adding more words.
-- **Two concrete gaps found during the 17-fixture review** are still
-  open (see
-  [What a 17-fixture human review actually found](#what-a-17-fixture-human-review-actually-found)
-  for the fixtures and full detail): the boundary-change detector
-  misses an off-by-one introduced by *adding* a token instead of
-  swapping one, and there's no heuristic for concurrency/race-condition
-  bugs at all. (The third, prose and version bumps burying a real flag,
-  is fixed.)
+- **Concurrency detection is shallow.** It only sees synchronization
+  being *removed* and one check-then-act shape; it can't see a race
+  that comes from moving code across an existing lock boundary, from
+  shared state without any primitive nearby, or from ordering between
+  hunks. A race *fix* that adds a lock isn't flagged at all. (See
+  [What a 17-fixture human review actually found](#what-a-17-fixture-human-review-actually-found).)
 - **File classification is path-only.** Linguist also detects generated
   files by content (e.g. a "Code generated … DO NOT EDIT" header), but a
   hunk only carries a few lines from the middle of a file, so a
@@ -472,12 +484,13 @@ with the UI it actually saw.
   Documentation detection is also by path. A code sample removed from a
   `.md` file still goes through the structural detectors (by design),
   but a security term inside it no longer raises a flag.
-- Test-file-specific handling (e.g. flagging a *weakened or removed*
-  assertion, as opposed to just noticing the file is a test) isn't
-  implemented — a reasonable v2 addition. Test files currently get the
-  same detectors as production code, so on a security fix the tests
-  exercising it are flagged high too (5 of the 8 remaining highs on
-  stellar/passkey-kit#4).
+- **Test files still get the production-code detectors too.** Weakened
+  and removed assertions are now flagged, but the security-keyword
+  detector also still fires on tests, so on a security fix the tests
+  exercising it are flagged high (5 of the 8 highs on
+  stellar/passkey-kit#4). Test files are recognized by path only
+  (`tests/`, `*_test.go`, `test_*.py`, `tests.py`, `*.spec.ts`,
+  `*Test.java`, …).
 - Split (side-by-side) diff view was checked live and works: GitHub
   reuses the same `td.blob-code-hunk`/`blob-code-addition`/
   `blob-code-deletion` classes there (a "changed" line just puts the old

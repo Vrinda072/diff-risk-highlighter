@@ -330,10 +330,58 @@
     return masked;
   }
 
+  // The other off-by-one shape: the fix *adds* (or drops) a `+ 1` / `- 1`
+  // instead of swapping a token — kmturbulenz/mglet-base#226
+  // (`idx = ... + (i-1)*kk*jj` -> `... - 1`), uqfoundation/dill#651
+  // (`range(1,lbuf)` -> `range(1,lbuf+1)`), microsoft/global-renewables-
+  // watch#12 (`randint(0, width - size)` -> `... + 1`), twmb/franz-go#381
+  // (a stray `+ 1` removed). Deliberately narrow: the pair must be the only
+  // difference on the line, the literal must be exactly 1, and the line
+  // must read like an index/bound expression (subscript, comparison, or a
+  // bound-ish identifier), so an ordinary `total = total + 1` rewrite of
+  // unrelated code doesn't qualify.
+  const STRING_LITERAL_RE = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\\n]|\\.)*`/g;
+  const BOUND_IDENT_RE = /(idx|index|len|length|size|count|end|start|begin|first|last|max|min|limit|bound|offset|pos|upper|lower|stop|range|capacity|slice)/i;
+  const BOUND_SYNTAX_RE = /\[|<=?|>=?|\.\./;
+
+  function looksLikeBoundExpression(tokens) {
+    return tokens.some((t) => (t.type === 'ident' && BOUND_IDENT_RE.test(t.value)) || (t.type === 'other' && BOUND_SYNTAX_RE.test(t.value)));
+  }
+
+  // If `longer` is `shorter` with exactly one `+ 1` / `- 1` token pair
+  // inserted, returns that pair as a string ("+ 1" / "- 1"), else null.
+  function insertedUnitStep(shorter, longer) {
+    if (longer.length !== shorter.length + 2) return null;
+    let p = 0;
+    while (p < shorter.length && shorter[p].value === longer[p].value) p++;
+    const [op, one] = [longer[p], longer[p + 1]];
+    if (!op || !one || (op.value !== '+' && op.value !== '-') || one.value !== '1') return null;
+    for (let i = p; i < shorter.length; i++) {
+      if (shorter[i].value !== longer[i + 2].value) return null;
+    }
+    return `${op.value} 1`;
+  }
+
+  function detectAddedUnitStep(removed, added) {
+    if (COMMENT_LINE_RE.test(removed) || COMMENT_LINE_RE.test(added)) return null;
+    const rTokens = tokenize(removed.replace(STRING_LITERAL_RE, '""'));
+    const aTokens = tokenize(added.replace(STRING_LITERAL_RE, '""'));
+    const addedStep = insertedUnitStep(rTokens, aTokens);
+    if (addedStep && looksLikeBoundExpression(aTokens)) {
+      return `Added "${addedStep}" to an index/bound expression on an otherwise unchanged line — off-by-one shape.`;
+    }
+    const removedStep = insertedUnitStep(aTokens, rTokens);
+    if (removedStep && looksLikeBoundExpression(rTokens)) {
+      return `Removed "${removedStep}" from an index/bound expression on an otherwise unchanged line — off-by-one shape.`;
+    }
+    return null;
+  }
+
   // Finds a hunk where one line was edited into an almost-identical line
   // that differs in exactly one token, and that token is a comparison /
   // range operator or an off-by-one-shaped integer literal change.
   // Modeled directly on alacritty#9027 (`..` -> `..=` in a range bound).
+  // Also catches the added/removed `± 1` shape (detectAddedUnitStep).
   function detectBoundaryChange(removedLines, addedLines, filePath) {
     const pairs = pairLines(
       removedLines.map((l) => maskVersionLiterals(l, filePath)),
@@ -342,6 +390,9 @@
     );
     for (const { removed, added } of pairs) {
       if (removed.trim() === added.trim()) continue;
+
+      const unitStep = detectAddedUnitStep(removed, added);
+      if (unitStep) return unitStep;
 
       const rTokens = tokenize(removed);
       const aTokens = tokenize(added);
@@ -466,6 +517,204 @@
     return SECURITY_KEYWORDS_RE.test(joined);
   }
 
+  // ---------------------------------------------------------------------
+  // Test files: weakened or removed assertions. A test that stops checking
+  // something passes more easily, so the PR looks green for the wrong
+  // reason. Calibrated on weaviate#11801, goauthentik#13371 (assertions
+  // deleted), google/jaxopt#642 (tolerance raised), elastic/apm-agent-
+  // python#2636 (bound dropped), aws/aws-sdk-js-v3#8212 (exact string ->
+  // regex). Medium, not high: loosening a flaky test is often the right
+  // call — the point is that a reviewer should notice it happened.
+  // ---------------------------------------------------------------------
+
+  const TEST_PATH_PATTERNS = [
+    /(^|\/)(tests?|__tests__|spec|specs|testing)\//i,
+    /(^|\/)test_[^/]+\.py$|_tests?\.py$|(^|\/)tests?\.py$/, // tests.py: Django's convention
+    /_test\.(go|rs|c|cc|cpp|exs?)$/,
+    /\.(test|spec)\.[cm]?[jt]sx?$/,
+    /(Test|Tests|IT|Spec)\.(java|kt|scala|cs|php|swift|groovy)$/,
+    /_spec\.rb$|(^|\/)test_[^/]+\.rb$/,
+  ];
+
+  function isTestFile(filePath) {
+    return TEST_PATH_PATTERNS.some((re) => re.test(filePath || ''));
+  }
+
+  const ASSERTION_RE =
+    /\b(assert\w*|expect|require\.\w+|XCTAssert\w*|(EXPECT|ASSERT)_[A-Z_]+|should\w*|verify)\s*[.(!]|^\s*assert\s|#expect\s*\(/;
+
+  function countAssertions(lines) {
+    return lines.filter((l) => !COMMENT_LINE_RE.test(l) && ASSERTION_RE.test(l.replace(STRING_LITERAL_RE, '""'))).length;
+  }
+
+  // Strict matcher -> matcher that accepts strictly more values.
+  const LOOSENED_MATCHERS = [
+    [/\.(toEqual|toStrictEqual|toBe|toMatchObject|toHaveLength)\(/, /\.(toBeTruthy|toBeDefined|toBeFalsy|not\.toBeNull|not\.toBeUndefined|toBeInstanceOf)\(/],
+    [/\bassert(Equal|Equals|Same|Identical|ListEqual|DictEqual|CountEqual)\s*\(/, /\bassert(True|False|IsNotNone|NotNull|IsNone|Null|IsInstance)\s*\(/],
+    [/\bassert\.(Equal|Exactly|Same|ElementsMatch)\(/, /\bassert\.(True|NotNil|NotEmpty|Contains|Greater\w*|Less\w*)\(/],
+    [/\bassert_eq!\(/, /\bassert!\(/],
+  ];
+  // What an exact expected string was replaced with, if it got looser.
+  const LOOSE_EXPECTATION_RE = /^\/.*\/[a-z]*$|^expect\.(any|anything|stringContaining|stringMatching|objectContaining|arrayContaining)\(|^(mock\.|unittest\.mock\.)?ANY$/;
+  const NUMBER_RE = /\d+(?:\.\d+)?(?:[eE][-+]?\d+)?/g;
+  const UPPER_BOUND_ASSERT_RE = /\b(assertLess\w*|toBeLessThan\w*|assert\.Less\w*|lessThan\w*)\b|<=?/;
+  const LOWER_BOUND_ASSERT_RE = /\b(assertGreater\w*|toBeGreaterThan\w*|assert\.Greater\w*|greaterThan\w*)\b|>=?/;
+  const TOLERANCE_RE = /\b(rtol|atol|delta|places|tolerance|tol|epsilon|eps|abs|rel)\s*=/;
+  const COMPARISON_RE = /<=|>=|==|!=|<|>/g;
+  const SKIP_MARKER_RE =
+    /\b(it|test|describe|context)\.(skip|todo)\(|\b(xit|xtest|xdescribe|xcontext)\(|@(pytest\.mark\.skip\w*|unittest\.skip\w*|skip\w*|Disabled|Ignore)\b|\[(Ignore|Skip)\b|\bt\.Skip(Now|f)?\(|\bpytest\.skip\(|\bself\.skipTest\(|#\[ignore\]/;
+
+  function assertionVerb(line) {
+    const m = line.match(/\b(assert\w*|expect|require\.\w+|XCTAssert\w*|(?:EXPECT|ASSERT)_[A-Z_]+)\b/);
+    return m ? m[1] : null;
+  }
+
+  // Common prefix/suffix split of two lines: what the edit replaced.
+  function changedMiddle(a, b) {
+    let p = 0;
+    while (p < a.length && p < b.length && a[p] === b[p]) p++;
+    let s = 0;
+    while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+    return [a.slice(p, a.length - s).trim(), b.slice(p, b.length - s).trim()];
+  }
+
+  function weakenedAssertionInPair(removed, added) {
+    if (COMMENT_LINE_RE.test(removed) || COMMENT_LINE_RE.test(added)) return null;
+
+    for (const [strict, loose] of LOOSENED_MATCHERS) {
+      if (strict.test(removed) && !strict.test(added) && loose.test(added)) {
+        return `Assertion loosened: "${removed.match(strict)[0]}" replaced by "${added.match(loose)[0]}".`;
+      }
+    }
+
+    const [was, now] = changedMiddle(removed, added);
+    const wasString = /^(["'`]).*\1,?$/.test(was);
+    if (wasString && LOOSE_EXPECTATION_RE.test(now.replace(/,$/, ''))) {
+      return 'An exact expected string in a test was replaced by a looser pattern.';
+    }
+
+    if (!ASSERTION_RE.test(removed) || assertionVerb(removed) !== assertionVerb(added)) return null;
+
+    const skeleton = (l) => l.replace(STRING_LITERAL_RE, '""').replace(NUMBER_RE, 'N').replace(/\s+/g, '');
+    if (skeleton(removed) === skeleton(added)) {
+      const rNums = removed.replace(STRING_LITERAL_RE, '""').match(NUMBER_RE) || [];
+      const aNums = added.replace(STRING_LITERAL_RE, '""').match(NUMBER_RE) || [];
+      const i = rNums.findIndex((n, k) => n !== aNums[k]);
+      if (i !== -1 && rNums.filter((n, k) => n !== aNums[k]).length === 1) {
+        const [from, to] = [parseFloat(rNums[i]), parseFloat(aNums[i])];
+        const upper = UPPER_BOUND_ASSERT_RE.test(removed) || TOLERANCE_RE.test(removed);
+        const lower = LOWER_BOUND_ASSERT_RE.test(removed) && !upper;
+        if ((upper && to > from) || (lower && to < from)) {
+          return `Assertion threshold loosened (${rNums[i]} → ${aNums[i]}) — check the test wasn't relaxed just to pass.`;
+        }
+      }
+      return null;
+    }
+
+    const rComparisons = (removed.replace(STRING_LITERAL_RE, '""').match(COMPARISON_RE) || []).length;
+    const aComparisons = (added.replace(STRING_LITERAL_RE, '""').match(COMPARISON_RE) || []).length;
+    if (aComparisons < rComparisons && aComparisons > 0) {
+      return 'An assertion lost a condition (fewer comparisons in the same assertion) — check the test still covers what it did.';
+    }
+    return null;
+  }
+
+  function detectWeakenedTest(filePath, removedLines, addedLines) {
+    if (!isTestFile(filePath)) return null;
+
+    const skipsAdded = addedLines.filter((l) => SKIP_MARKER_RE.test(l)).length;
+    const skipsRemoved = removedLines.filter((l) => SKIP_MARKER_RE.test(l)).length;
+    if (skipsAdded > skipsRemoved) return 'A test was skipped/disabled — confirm it is tracked and not just hiding a failure.';
+
+    const removedCount = countAssertions(removedLines);
+    const addedCount = countAssertions(addedLines);
+    if (removedCount > addedCount) {
+      const n = removedCount - addedCount;
+      return `Removed ${n} test assertion${n === 1 ? '' : 's'} — check the behavior is still covered, not just that the test passes.`;
+    }
+
+    for (const { removed, added } of pairLines(removedLines, addedLines, BOUNDARY_PAIR_SIMILARITY)) {
+      if (removed.trim() === added.trim()) continue;
+      const reason = weakenedAssertionInPair(removed, added);
+      if (reason) return reason;
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------
+  // Concurrency: a first, deliberately conservative pass. It prefers
+  // missing races over flagging ordinary code, so it only looks for two
+  // shapes whose meaning doesn't depend on knowing the program:
+  //   1. Synchronization removed: fewer lock/atomic/synchronized uses on
+  //      the added side than the removed side of the same hunk. Swapping
+  //      one primitive for another (volatile -> atomic_bool, raw mutex ->
+  //      LockGuarded) nets out and isn't flagged.
+  //   2. A new check-then-act on a shared container (check membership,
+  //      then insert) in code that visibly runs concurrently, with no lock
+  //      added alongside it.
+  // Real race *fixes* usually add synchronization, which neither shape
+  // flags — see test/fixtures/real-prs (race-condition) for how that plays
+  // out on real PRs.
+  // ---------------------------------------------------------------------
+
+  const SYNC_PRIMITIVE_RE =
+    /\b(R?Lock|R?Unlock|lock|unlock|try_?lock|TryLock|mutex|Mutex|RWMutex|RwLock|ReentrantLock|synchronized|volatile|atomic(?:_\w+)?|Atomic\w+|lock_guard|unique_lock|scoped_lock|shared_lock|Semaphore|semaphore|withLock\w*|OSAllocatedUnfairLock|NSLock|LockGuarded|select_for_update|pthread_mutex_\w+)\b/g;
+  const CONCURRENCY_CONTEXT_RE =
+    /\b(thread\w*|Thread\w*|goroutine|go\s+func|async|await|concurrent\w*|Concurrent\w*|parallel\w*|executor|Executor\w*|ThreadPool\w*|worker\w*|multiprocessing|spawn|Task\.Run|DispatchQueue)\b/;
+  const CHECK_THEN_ACT_PATTERNS = [
+    // Python: if k not in c: ... c[k] = / c.add / c.append / c.setdefault
+    { check: /\bif\s+(?:not\s+)?[\w.\[\]'"]+\s+(?:not\s+)?in\s+([\w.]+)\s*:/, act: (c) => new RegExp(`\\b${c}(\\[[^\\]]+\\]\\s*=[^=]|\\.(add|append|setdefault)\\()`) },
+    // JS/TS/Java: if (!c.has(k)) / containsKey / contains ... c.set / put / add
+    { check: /\bif\s*\(\s*!?\s*([\w.]+)\.(has|containsKey|contains)\(/, act: (c) => new RegExp(`\\b${c}\\.(set|put|add|putIfAbsent)\\(`) },
+    // Go: if _, ok := c[k]; !ok { c[k] = v }
+    { check: /\bif\s+_,\s*ok\s*:?=\s*([\w.]+)\[/, act: (c) => new RegExp(`\\b${c}\\[[^\\]]+\\]\\s*=[^=]`) },
+  ];
+
+  function codeOnly(lines) {
+    return lines.filter((l) => !COMMENT_LINE_RE.test(l)).map((l) => l.replace(STRING_LITERAL_RE, '""'));
+  }
+
+  // Lock *variables* are usually named for what they are (`_lock`,
+  // `self._lock`, `cache_mutex`, `state_mu`), which \block\b can't see past
+  // the underscore. Anchored on `_` or `with` so words like block/clock/
+  // file_lock_path don't count.
+  const LOCK_IDENTIFIER_RE = /(?:^|[^\w])[\w.]*_(?:r?lock|mutex|mu)\b|\bwith\s+[\w.]*[Ll]ock\b/g;
+
+  function countSyncPrimitives(lines) {
+    return codeOnly(lines).reduce(
+      (n, l) => n + (l.match(SYNC_PRIMITIVE_RE) || []).length + (l.match(LOCK_IDENTIFIER_RE) || []).length,
+      0
+    );
+  }
+
+  function detectConcurrencyRisk(removedLines, addedLines) {
+    const removedSync = countSyncPrimitives(removedLines);
+    const addedSync = countSyncPrimitives(addedLines);
+    if (removedSync > addedSync) {
+      return {
+        severity: LEVELS.HIGH,
+        reason: 'Removed synchronization (lock/atomic/synchronized) — confirm the shared state it protected is still safe to access concurrently.',
+      };
+    }
+
+    const added = codeOnly(addedLines);
+    if (addedSync > 0 || !CONCURRENCY_CONTEXT_RE.test([...removedLines, ...addedLines].join('\n'))) return null;
+    for (const { check, act } of CHECK_THEN_ACT_PATTERNS) {
+      for (let i = 0; i < added.length; i++) {
+        const m = added[i].match(check);
+        if (!m) continue;
+        const actRe = act(m[1].replace(/[.$]/g, '\\$&'));
+        if (added.slice(i, i + 6).some((l) => actRe.test(l))) {
+          return {
+            severity: LEVELS.MEDIUM,
+            reason: `New check-then-act on "${m[1]}" in concurrent code with no lock — another thread/task can change it between the check and the write.`,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   const FUNCTION_DECL_RE =
     /\b(?:def|function|fn|func)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)/;
 
@@ -567,6 +816,16 @@
     const conditional = detectRemovedConditional(removedLines);
     if (conditional) {
       candidates.push(conditional);
+    }
+
+    const concurrencyRisk = isDocumentation ? null : detectConcurrencyRisk(removedLines, addedLines);
+    if (concurrencyRisk) {
+      candidates.push(concurrencyRisk);
+    }
+
+    const weakenedTest = detectWeakenedTest(filePath, removedLines, addedLines);
+    if (weakenedTest) {
+      candidates.push({ severity: LEVELS.MEDIUM, reason: weakenedTest });
     }
 
     const signatureChange = detectSignatureChange(removedLines, addedLines);
