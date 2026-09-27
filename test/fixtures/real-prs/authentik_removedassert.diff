@@ -1,0 +1,25 @@
+diff --git a/authentik/stages/authenticator_email/tests.py b/authentik/stages/authenticator_email/tests.py
+index 0522c759a257..aefa923998cc 100644
+--- a/authentik/stages/authenticator_email/tests.py
++++ b/authentik/stages/authenticator_email/tests.py
+@@ -299,12 +299,6 @@ def test_session_management(self):
+                 data={"component": "ak-stage-authenticator-email", "code": device.token},
+             )
+             self.assertEqual(response.status_code, 200)
+-            self.assertTrue(device.confirmed)
+-            # Get a fresh session to check if the key was removed
+-            session = self.client.session
+-            session.save()
+-            session.load()
+-            self.assertNotIn(SESSION_KEY_EMAIL_DEVICE, session)
+ 
+     def test_model_properties_and_methods(self):
+         """Test model properties"""
+@@ -331,7 +325,6 @@ def test_model_properties_and_methods(self):
+             self.stage.send(device)
+ 
+     def test_email_tasks(self):
+-
+         email_send_mock = MagicMock()
+         with patch(
+             "authentik.stages.email.tasks.send_mails",

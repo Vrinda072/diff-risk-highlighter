@@ -1,0 +1,240 @@
+diff --git a/configserver/src/main/java/com/yahoo/vespa/config/server/application/TenantApplications.java b/configserver/src/main/java/com/yahoo/vespa/config/server/application/TenantApplications.java
+index 5831cb3e75f..b559eaaf422 100644
+--- a/configserver/src/main/java/com/yahoo/vespa/config/server/application/TenantApplications.java
++++ b/configserver/src/main/java/com/yahoo/vespa/config/server/application/TenantApplications.java
+@@ -253,7 +253,7 @@ public void removeApplication(ApplicationId applicationId) {
+ 
+         if (hasApplication(applicationId)) {
+             applicationMapper.remove(applicationId);
+-            hostRegistry.removeHostsForKey(applicationId);
++            hostRegistry.removeHosts(applicationId);
+             configActivationListenersOnRemove(applicationId);
+             tenantMetricUpdater.setApplications(applicationMapper.numApplications());
+             metrics.removeMetricUpdater(Metrics.createDimensions(applicationId));
+@@ -277,17 +277,17 @@ public void removeApplicationsExcept(Set<ApplicationId> applications) {
+     }
+ 
+     private void configActivationListenersOnRemove(ApplicationId applicationId) {
+-        configActivationListener.hostsUpdated(applicationId, hostRegistry.getHostsForKey(applicationId));
++        configActivationListener.hostsUpdated(applicationId, hostRegistry.getHosts(applicationId));
+         configActivationListener.applicationRemoved(applicationId);
+     }
+ 
+     private void setActiveApp(ApplicationSet applicationSet) {
+-        ApplicationId id = applicationSet.getId();
++        ApplicationId applicationId = applicationSet.getId();
+         Collection<String> hostsForApp = applicationSet.getAllHosts();
+-        hostRegistry.update(id, hostsForApp);
++        hostRegistry.update(applicationId, hostsForApp);
+         applicationSet.updateHostMetrics();
+         tenantMetricUpdater.setApplications(applicationMapper.numApplications());
+-        applicationMapper.register(id, applicationSet);
++        applicationMapper.register(applicationId, applicationSet);
+     }
+ 
+     @Override
+@@ -377,7 +377,7 @@ private boolean hasHandler(ApplicationId appId, Optional<Version> vespaVersion)
+ 
+     @Override
+     public ApplicationId resolveApplicationId(String hostName) {
+-        return hostRegistry.getKeyForHost(hostName);
++        return hostRegistry.getApplicationId(hostName);
+     }
+ 
+     @Override
+@@ -402,8 +402,9 @@ public void verifyHosts(ApplicationId applicationId, Collection<String> newHosts
+         configActivationListener.verifyHostsAreAvailable(applicationId, newHosts);
+     }
+ 
++    // TODO: Duplicate of resolveApplicationId() above
+     public ApplicationId getApplicationIdForHostName(String hostname) {
+-        return hostRegistry.getKeyForHost(hostname);
++        return hostRegistry.getApplicationId(hostname);
+     }
+ 
+     public TenantFileSystemDirs getTenantFileSystemDirs() { return tenantFileSystemDirs; }
+diff --git a/configserver/src/main/java/com/yahoo/vespa/config/server/host/HostRegistry.java b/configserver/src/main/java/com/yahoo/vespa/config/server/host/HostRegistry.java
+index b89f3bba835..e6f2452b693 100644
+--- a/configserver/src/main/java/com/yahoo/vespa/config/server/host/HostRegistry.java
++++ b/configserver/src/main/java/com/yahoo/vespa/config/server/host/HostRegistry.java
+@@ -23,19 +23,19 @@ public class HostRegistry implements HostValidator {
+ 
+     private static final Logger log = Logger.getLogger(HostRegistry.class.getName());
+ 
+-    private final Map<String, ApplicationId> host2KeyMap = new ConcurrentHashMap<>();
++    private final Map<String, ApplicationId> host2ApplicationId = new ConcurrentHashMap<>();
+ 
+-    public ApplicationId getKeyForHost(String hostName) {
+-        return host2KeyMap.get(hostName);
++    public ApplicationId getApplicationId(String hostName) {
++        return host2ApplicationId.get(hostName);
+     }
+ 
+     public synchronized void update(ApplicationId key, Collection<String> newHosts) {
+         verifyHosts(key, newHosts);
+-        Collection<String> currentHosts = getHostsForKey(key);
++        Collection<String> currentHosts = getHosts(key);
+         log.log(Level.FINE, () -> "Setting hosts for key '" + key + "', " +
+                                   "newHosts: " + newHosts + ", " +
+                                   "currentHosts: " + currentHosts);
+-        Collection<String> removedHosts = getRemovedHosts(newHosts, currentHosts);
++        Collection<String> removedHosts = findRemovedHosts(newHosts, currentHosts);
+         removeHosts(removedHosts);
+         addHosts(key, newHosts);
+     }
+@@ -45,49 +45,49 @@ public synchronized void verifyHosts(ApplicationId applicationId, Collection<Str
+         for (String host : newHosts) {
+             if (hostAlreadyTaken(host, applicationId)) {
+                 throw new IllegalArgumentException("'" + applicationId + "' tried to allocate host '" + host +
+-                                                   "', but the host is already taken by '" + host2KeyMap.get(host) + "'");
++                                                   "', but the host is already taken by '" + host2ApplicationId.get(host) + "'");
+             }
+         }
+     }
+ 
+-    public synchronized void removeHostsForKey(ApplicationId key) {
+-        host2KeyMap.entrySet().removeIf(entry -> entry.getValue().equals(key));
++    public synchronized void removeHosts(ApplicationId key) {
++        host2ApplicationId.entrySet().removeIf(entry -> entry.getValue().equals(key));
+     }
+ 
+-    public synchronized void removeHostsForKey(TenantName key) {
+-        host2KeyMap.entrySet().removeIf(entry -> entry.getValue().tenant().equals(key));
++    public synchronized void removeHosts(TenantName key) {
++        host2ApplicationId.entrySet().removeIf(entry -> entry.getValue().tenant().equals(key));
+     }
+ 
+     public synchronized Collection<String> getAllHosts() {
+-        return Collections.unmodifiableCollection(new ArrayList<>(host2KeyMap.keySet()));
++        return Collections.unmodifiableCollection(new ArrayList<>(host2ApplicationId.keySet()));
+     }
+ 
+-    public synchronized Collection<String> getHostsForKey(ApplicationId key) {
+-        return host2KeyMap.entrySet().stream()
+-                .filter(entry -> entry.getValue().equals(key))
+-                .map(Map.Entry::getKey)
+-                .collect(Collectors.toSet());
++    public synchronized Collection<String> getHosts(ApplicationId key) {
++        return host2ApplicationId.entrySet().stream()
++                                 .filter(entry -> entry.getValue().equals(key))
++                                 .map(Map.Entry::getKey)
++                                 .collect(Collectors.toSet());
+     }
+ 
+     private boolean hostAlreadyTaken(String host, ApplicationId key) {
+-        return host2KeyMap.containsKey(host) && !key.equals(host2KeyMap.get(host));
++        return host2ApplicationId.containsKey(host) && !key.equals(host2ApplicationId.get(host));
+     }
+ 
+-    private static Collection<String> getRemovedHosts(Collection<String> newHosts, Collection<String> previousHosts) {
++    private static Collection<String> findRemovedHosts(Collection<String> newHosts, Collection<String> previousHosts) {
+         return Collections2.filter(previousHosts, host -> !newHosts.contains(host));
+     }
+ 
+     private void removeHosts(Collection<String> removedHosts) {
+         for (String host : removedHosts) {
+             log.log(Level.FINE, () -> "Removing " + host);
+-            host2KeyMap.remove(host);
++            host2ApplicationId.remove(host);
+         }
+     }
+ 
+     private void addHosts(ApplicationId key, Collection<String> newHosts) {
+         for (String host : newHosts) {
+             log.log(Level.FINE, () -> "Adding " + host);
+-            host2KeyMap.put(host, key);
++            host2ApplicationId.put(host, key);
+         }
+     }
+ 
+diff --git a/configserver/src/main/java/com/yahoo/vespa/config/server/rpc/RpcServer.java b/configserver/src/main/java/com/yahoo/vespa/config/server/rpc/RpcServer.java
+index be4738258d8..aac34238b90 100644
+--- a/configserver/src/main/java/com/yahoo/vespa/config/server/rpc/RpcServer.java
++++ b/configserver/src/main/java/com/yahoo/vespa/config/server/rpc/RpcServer.java
+@@ -351,7 +351,7 @@ public void respond(JRTServerConfigRequest request) {
+     Optional<TenantName> resolveTenant(JRTServerConfigRequest request, Trace trace) {
+         if ("*".equals(request.getConfigKey().getConfigId())) return Optional.of(ApplicationId.global().tenant());
+         String hostname = request.getClientHostName();
+-        ApplicationId applicationId = hostRegistry.getKeyForHost(hostname);
++        ApplicationId applicationId = hostRegistry.getApplicationId(hostname);
+         if (applicationId == null) {
+             if (GetConfigProcessor.logDebug(trace)) {
+                 String message = "Did not find tenant for host '" + hostname + "', using " + TenantName.defaultName() +
+@@ -445,7 +445,7 @@ public void onTenantDelete(TenantName tenant) {
+         log.log(Level.FINE, () -> TenantRepository.logPre(tenant) +
+                             "Tenant deleted, removing request handler and cleaning host registry");
+         tenants.remove(tenant);
+-        hostRegistry.removeHostsForKey(tenant);
++        hostRegistry.removeHosts(tenant);
+     }
+ 
+     @Override
+diff --git a/configserver/src/main/java/com/yahoo/vespa/config/server/rpc/security/MultiTenantRpcAuthorizer.java b/configserver/src/main/java/com/yahoo/vespa/config/server/rpc/security/MultiTenantRpcAuthorizer.java
+index 536a446df2f..21f7354401f 100644
+--- a/configserver/src/main/java/com/yahoo/vespa/config/server/rpc/security/MultiTenantRpcAuthorizer.java
++++ b/configserver/src/main/java/com/yahoo/vespa/config/server/rpc/security/MultiTenantRpcAuthorizer.java
+@@ -106,7 +106,7 @@ private void doConfigRequestAuthorization(Request request, NodeIdentity peerIden
+                     return; // global config access ok
+                 } else {
+                     String hostname = configRequest.getClientHostName();
+-                    ApplicationId applicationId = hostRegistry.getKeyForHost(hostname);
++                    ApplicationId applicationId = hostRegistry.getApplicationId(hostname);
+                     if (applicationId == null) {
+                         if (isConfigKeyForSentinelConfig(configKey)) {
+                             return; // config processor will return empty sentinel config for unknown nodes
+diff --git a/configserver/src/test/java/com/yahoo/vespa/config/server/host/HostRegistryTest.java b/configserver/src/test/java/com/yahoo/vespa/config/server/host/HostRegistryTest.java
+index df00d28134f..646017a498e 100644
+--- a/configserver/src/test/java/com/yahoo/vespa/config/server/host/HostRegistryTest.java
++++ b/configserver/src/test/java/com/yahoo/vespa/config/server/host/HostRegistryTest.java
+@@ -24,23 +24,23 @@ public class HostRegistryTest {
+     @Test
+     public void old_hosts_are_removed() {
+         HostRegistry reg = new HostRegistry();
+-        assertNull(reg.getKeyForHost("foo.com"));
++        assertNull(reg.getApplicationId("foo.com"));
+         reg.update(foo, List.of("foo.com", "bar.com", "baz.com"));
+         assertGetKey(reg, "foo.com", foo);
+         assertGetKey(reg, "bar.com", foo);
+         assertGetKey(reg, "baz.com", foo);
+         assertEquals(3, reg.getAllHosts().size());
+         reg.update(foo, List.of("bar.com", "baz.com"));
+-        assertNull(reg.getKeyForHost("foo.com"));
++        assertNull(reg.getApplicationId("foo.com"));
+         assertGetKey(reg, "bar.com", foo);
+         assertGetKey(reg, "baz.com", foo);
+ 
+         assertEquals(2, reg.getAllHosts().size());
+         assertTrue(reg.getAllHosts().containsAll(List.of("bar.com", "baz.com")));
+-        reg.removeHostsForKey(foo);
++        reg.removeHosts(foo);
+         assertTrue(reg.getAllHosts().isEmpty());
+-        assertNull(reg.getKeyForHost("foo.com"));
+-        assertNull(reg.getKeyForHost("bar.com"));
++        assertNull(reg.getApplicationId("foo.com"));
++        assertNull(reg.getApplicationId("bar.com"));
+     }
+ 
+     @Test
+@@ -74,9 +74,9 @@ public void ensure_that_collection_is_copied() {
+         HostRegistry reg = new HostRegistry();
+         List<String> hosts = new ArrayList<>(List.of("foo.com", "bar.com", "baz.com"));
+         reg.update(foo, hosts);
+-        assertEquals(3, reg.getHostsForKey(foo).size());
++        assertEquals(3, reg.getHosts(foo).size());
+         hosts.remove(2);
+-        assertEquals(3, reg.getHostsForKey(foo).size());
++        assertEquals(3, reg.getHosts(foo).size());
+     }
+ 
+     @Test
+@@ -90,8 +90,8 @@ public void ensure_that_underlying_hosts_do_not_change() {
+     }
+ 
+     private void assertGetKey(HostRegistry reg, String host, ApplicationId expectedKey) {
+-        assertNotNull(reg.getKeyForHost(host));
+-        assertEquals(expectedKey, reg.getKeyForHost(host));
++        assertNotNull(reg.getApplicationId(host));
++        assertEquals(expectedKey, reg.getApplicationId(host));
+     }
+ 
+ }

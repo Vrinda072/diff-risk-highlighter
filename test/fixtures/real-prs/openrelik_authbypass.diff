@@ -1,0 +1,33 @@
+diff --git a/src/datastores/sql/crud/authz.py b/src/datastores/sql/crud/authz.py
+index d6325e0..6d61cf1 100644
+--- a/src/datastores/sql/crud/authz.py
++++ b/src/datastores/sql/crud/authz.py
+@@ -134,7 +134,7 @@ def _check_access(kwargs):
+             file_id = kwargs.get("file_id")
+             current_user = kwargs.get("current_user")
+ 
+-            if folder_id:
++            if folder_id is not None:
+                 try:
+                     folder_id = int(folder_id)
+                 except (ValueError, TypeError):
+diff --git a/src/tests/datastores/authz_test.py b/src/tests/datastores/authz_test.py
+index a876e39..9fcdeca 100644
+--- a/src/tests/datastores/authz_test.py
++++ b/src/tests/datastores/authz_test.py
+@@ -224,3 +224,15 @@ def dummy_endpoint(db, file_id, current_user):
+         dummy_endpoint(db=db, file_id="invalid", current_user=user)
+     assert exc_info.value.status_code == 400
+     assert "Invalid file ID format" in exc_info.value.detail
++
++def test_require_access_decorator_folder_id_zero(db, authz):
++    @require_access([Role.VIEWER])
++    def dummy_endpoint(db, folder_id, current_user):
++        return True
++
++    user = User(id=1, groups=[])
++    db.get.return_value = None
++
++    with pytest.raises(HTTPException) as exc_info:
++        dummy_endpoint(db=db, folder_id=0, current_user=user)
++    assert exc_info.value.status_code == 404
