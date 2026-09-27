@@ -477,3 +477,236 @@ describe('boundary-change detector ignores version-shaped numbers', () => {
     assert.equal(_internal.maskVersionLiterals('uses: actions/checkout@v4.1.0', '.github/workflows/ci.yml'), 'uses: actions/checkout@VERSION_LITERAL');
   });
 });
+
+describe('off-by-one by adding or removing a "± 1" token', () => {
+  it('flags "- 1" appended to an index expression (kmturbulenz/mglet-base#226)', () => {
+    const result = assessHunk({
+      filePath: 'src/core/fieldhelper_mod.F90',
+      removedLines: ['                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj'],
+      addedLines: ['                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj - 1'],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /Added "- 1".*off-by-one/);
+  });
+
+  it('flags "+1" added to a range bound, ignoring the string literal on the line (uqfoundation/dill#651)', () => {
+    const result = assessHunk({
+      filePath: 'dill/source.py',
+      removedLines: ["        lines = [readline.get_history_item(i)+'\\n' for i in range(1,lbuf)]"],
+      addedLines: ["        lines = [readline.get_history_item(i)+'\\n' for i in range(1,lbuf+1)]"],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /Added "\+ 1"/);
+  });
+
+  it('flags a removed "+ 1" (twmb/franz-go#381)', () => {
+    const result = assessHunk({
+      filePath: 'pkg/kfake/pid.go',
+      removedLines: ['\t\tnext64 = (seq64 + int64(numRecs) + 1) % math.MaxInt32'],
+      addedLines: ['\t\tnext64 = (seq64 + int64(numRecs)) % math.MaxInt32'],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /Removed "\+ 1"/);
+  });
+
+  it('does not flag "+ 1" on a line with no index/bound shape', () => {
+    const result = assessHunk({ filePath: 'score.js', removedLines: ['  score = base * weight;'], addedLines: ['  score = base * weight + 1;'] });
+    assert.equal(result.level, 'low');
+  });
+
+  it('does not flag "+ 1" that only appears inside a string literal', () => {
+    const result = assessHunk({ filePath: 'ui.js', removedLines: ['  const label = "page end";'], addedLines: ['  const label = "page end + 1";'] });
+    assert.equal(result.level, 'low');
+  });
+
+  it('does not flag a comment gaining "+ 1"', () => {
+    const result = assessHunk({ filePath: 'buf.c', removedLines: ['  // copy up to len bytes'], addedLines: ['  // copy up to len + 1 bytes'] });
+    assert.equal(result.level, 'low');
+  });
+
+  it('does not flag "+ 2" or a "+ 1" that comes with other edits on the line', () => {
+    assert.equal(assessHunk({ filePath: 'a.py', removedLines: ['x = arr[len(arr) - 1]'], addedLines: ['x = arr[len(arr) - 2]'] }).reason.includes('Added'), false);
+    const result = assessHunk({ filePath: 'a.py', removedLines: ['end = start + size'], addedLines: ['end = offset + size + 1'] });
+    assert.doesNotMatch(result.reason, /Added "\+ 1"/);
+  });
+});
+
+describe('test files: weakened or removed assertions', () => {
+  it('flags removed assertions (weaviate/weaviate#11801)', () => {
+    const result = assessHunk({
+      filePath: 'adapters/repos/db/vector/dynamic/index_test.go',
+      removedLines: ['\tassert.True(t, latency1 > latency2)'],
+      addedLines: [],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /Removed 1 test assertion/);
+  });
+
+  it('recognizes Django-style tests.py as a test file (goauthentik/authentik#13371)', () => {
+    const result = assessHunk({
+      filePath: 'authentik/stages/authenticator_email/tests.py',
+      removedLines: ['            self.assertTrue(device.confirmed)', '            self.assertNotIn(SESSION_KEY_EMAIL_DEVICE, session)'],
+      addedLines: [],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /Removed 2 test assertions/);
+  });
+
+  it('flags a loosened upper-bound threshold (google/jaxopt#642)', () => {
+    const result = assessHunk({
+      filePath: 'tests/lbfgsb_test.py',
+      removedLines: ['    self.assertLessEqual(fun(x), 1e-3)'],
+      addedLines: ['    self.assertLessEqual(fun(x), 1.5e-3)'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /threshold loosened \(1e-3 → 1\.5e-3\)/);
+  });
+
+  it('does not flag a tightened threshold or an updated expected value', () => {
+    const tightened = assessHunk({ filePath: 'tests/lbfgsb_test.py', removedLines: ['    self.assertLessEqual(fun(x), 1.5e-3)'], addedLines: ['    self.assertLessEqual(fun(x), 1e-3)'] });
+    assert.equal(tightened.level, 'low');
+    const updated = assessHunk({ filePath: 'tests/test_cart.py', removedLines: ['    self.assertEqual(len(cart.items), 3)'], addedLines: ['    self.assertEqual(len(cart.items), 4)'] });
+    assert.doesNotMatch(updated.reason, /loosened|assertion/i);
+  });
+
+  it('flags an assertion that lost a condition (elastic/apm-agent-python#2636)', () => {
+    const result = assessHunk({
+      filePath: 'tests/metrics/cpu_psutil_tests.py',
+      removedLines: ['    assert 0 < data["samples"]["system.cpu.total.norm.pct"]["value"] < 1'],
+      addedLines: ['    assert data["samples"]["system.cpu.total.norm.pct"]["value"] > 0'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /lost a condition/);
+  });
+
+  it('does not treat rewriting `assert x == y` as assertEqual(x, y) as a lost condition', () => {
+    const result = assessHunk({ filePath: 'tests/test_math.py', removedLines: ['    assert add(1, 2) == 3'], addedLines: ['    self.assertEqual(add(1, 2), 3)'] });
+    assert.equal(result.level, 'low');
+  });
+
+  it('flags an exact expected string replaced by a regex (aws/aws-sdk-js-v3#8212)', () => {
+    const result = assessHunk({
+      filePath: 'packages-internal/middleware-sdk-route53/src/middleware-sdk-route53.integ.spec.ts',
+      removedLines: ['        path: "/2013-04-01/change/my-change",'],
+      addedLines: ['        path: /^\\/20\\d\\d-\\d\\d-\\d\\d\\/change\\/my\\-change$/,'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /looser pattern/);
+  });
+
+  it('flags a strict matcher swapped for a truthiness check', () => {
+    const result = assessHunk({ filePath: 'src/cart.test.ts', removedLines: ['    expect(total).toEqual(42);'], addedLines: ['    expect(total).toBeTruthy();'] });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /toEqual.*toBeTruthy/);
+  });
+
+  it('flags assert_eq! with a specific error weakened to assert!(…is_err()) (stellar/passkey-kit#4)', () => {
+    const result = assessHunk({
+      filePath: 'contracts/smart-wallet/src/tests/test_auth.rs',
+      removedLines: ['    assert_eq!(', '        client.try_remove_signer(&policy_key),', '        Err(Ok(Error::LastSigner))', '    );'],
+      addedLines: ['    assert!(client', '        .try_remove_signer(&policy_key)', '        .is_err());'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /assert_eq!.*assert!/);
+  });
+
+  it('flags a newly skipped test', () => {
+    const result = assessHunk({ filePath: 'src/__tests__/login.test.js', removedLines: ["  it('rejects bad passwords', async () => {"], addedLines: ["  it.skip('rejects bad passwords', async () => {"] });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /skipped/);
+  });
+
+  it('only applies to test files', () => {
+    const result = assessHunk({ filePath: 'src/validate.py', removedLines: ['    assert amount > 0'], addedLines: [] });
+    assert.doesNotMatch(result.reason, /test assertion/);
+  });
+
+  it('does not flag moving an assertion within a test (same count before and after)', () => {
+    const result = assessHunk({
+      filePath: 'tests/test_api.py',
+      removedLines: ['    self.assertEqual(resp.status_code, 200)', '    data = resp.json()'],
+      addedLines: ['    data = resp.json()', '    self.assertEqual(resp.status_code, 200)'],
+    });
+    assert.equal(result.level, 'low');
+  });
+});
+
+describe('concurrency: removed synchronization and new check-then-act', () => {
+  it('flags removed atomics — esrrhs/spp#52 reversed (the race the fix closed)', () => {
+    const result = assessHunk({
+      filePath: 'proxy/common.go',
+      removedLines: ['\t\t\tf.PongFrame.Time = atomic.LoadInt64(pongtime)'],
+      addedLines: ['\t\t\tf.PongFrame.Time = *pongtime'],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /Removed synchronization/);
+  });
+
+  it('flags a removed mutex Lock/Unlock pair', () => {
+    const result = assessHunk({
+      filePath: 'server/cache.go',
+      removedLines: ['\tc.mu.Lock()', '\tdefer c.mu.Unlock()', '\tc.items[k] = v'],
+      addedLines: ['\tc.items[k] = v'],
+    });
+    assert.equal(result.level, 'high');
+  });
+
+  it('does not flag swapping one primitive for another (RediSearch/RediSearch#11547: volatile bool -> atomic_bool)', () => {
+    const result = assessHunk({
+      filePath: 'deps/thpool/thpool.c',
+      removedLines: ['    volatile bool started[n_new_threads];'],
+      addedLines: ['    atomic_bool started[n_new_threads];'],
+    });
+    assert.doesNotMatch(result.reason, /synchronization/);
+  });
+
+  it('does not flag added synchronization (a race fix) as removed', () => {
+    const result = assessHunk({ filePath: 'proxy/common.go', removedLines: ['\t*pongtime = f.PingFrame.Time'], addedLines: ['\tatomic.StoreInt64(pongtime, f.PingFrame.Time)'] });
+    assert.doesNotMatch(result.reason, /synchronization/);
+  });
+
+  it('ignores lock words in comments, strings, and longer words (block, clock)', () => {
+    for (const removed of ['    // take the lock before touching state', '    log.info("lock released")', '    block = clock.tick()']) {
+      const result = assessHunk({ filePath: 'svc/worker.py', removedLines: [removed], addedLines: ['    pass'] });
+      assert.doesNotMatch(result.reason, /synchronization/, removed);
+    }
+  });
+
+  it('flags a new check-then-act on a shared map in concurrent code', () => {
+    const result = assessHunk({
+      filePath: 'app/cache.py',
+      removedLines: [],
+      addedLines: ['async def get(key):', '    if key not in _cache:', '        _cache[key] = await load(key)', '    return _cache[key]'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /check-then-act on "_cache"/);
+  });
+
+  it('does not flag check-then-act without any concurrency context', () => {
+    const result = assessHunk({
+      filePath: 'app/config.py',
+      removedLines: [],
+      addedLines: ['def defaults(opts):', '    if "timeout" not in opts:', '        opts["timeout"] = 30', '    return opts'],
+    });
+    assert.equal(result.level, 'low');
+  });
+
+  it('does not flag check-then-act when the hunk also adds a lock', () => {
+    const result = assessHunk({
+      filePath: 'app/cache.py',
+      removedLines: [],
+      addedLines: ['def get(key):  # called from worker threads', '    with _lock:', '        if key not in _cache:', '            _cache[key] = load(key)'],
+    });
+    assert.doesNotMatch(result.reason, /check-then-act/);
+  });
+
+  it('flags the Go map form: if _, ok := m[k]; !ok { m[k] = v } inside a goroutine', () => {
+    const result = assessHunk({
+      filePath: 'pkg/registry.go',
+      removedLines: [],
+      addedLines: ['\tgo func() {', '\t\tif _, ok := seen[id]; !ok {', '\t\t\tseen[id] = struct{}{}', '\t\t}', '\t}()'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /check-then-act on "seen"/);
+  });
+});

@@ -33,10 +33,17 @@ describe('real-PR fixture metadata', () => {
       }
 
       const headers = hunkHeaders(fs.readFileSync(path.join(FIXTURES_DIR, m.fixture), 'utf8'));
-      for (const fix of m.fixHunks) {
+      for (const hunk of [...m.fixHunks, ...(m.expectedFlags || [])]) {
         assert.ok(
-          headers.some((h) => h.file === fix.file && h.header === fix.header),
-          `fix hunk ${fix.file} ${fix.header} not in ${m.fixture}`
+          headers.some((h) => h.file === hunk.file && h.header === hunk.header),
+          `hunk ${hunk.file} ${hunk.header} not in ${m.fixture}`
+        );
+      }
+      for (const flag of m.expectedFlags || []) {
+        assert.ok(flag.why, `expectedFlags entry ${flag.file} ${flag.header} needs a "why"`);
+        assert.ok(
+          !m.fixHunks.some((f) => f.file === flag.file && f.header === flag.header),
+          `${flag.file} ${flag.header} is listed as both a fix hunk and an expected flag`
         );
       }
     });
