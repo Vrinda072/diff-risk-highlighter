@@ -477,3 +477,56 @@ describe('boundary-change detector ignores version-shaped numbers', () => {
     assert.equal(_internal.maskVersionLiterals('uses: actions/checkout@v4.1.0', '.github/workflows/ci.yml'), 'uses: actions/checkout@VERSION_LITERAL');
   });
 });
+
+describe('off-by-one by adding or removing a "± 1" token', () => {
+  it('flags "- 1" appended to an index expression (kmturbulenz/mglet-base#226)', () => {
+    const result = assessHunk({
+      filePath: 'src/core/fieldhelper_mod.F90',
+      removedLines: ['                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj'],
+      addedLines: ['                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj - 1'],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /Added "- 1".*off-by-one/);
+  });
+
+  it('flags "+1" added to a range bound, ignoring the string literal on the line (uqfoundation/dill#651)', () => {
+    const result = assessHunk({
+      filePath: 'dill/source.py',
+      removedLines: ["        lines = [readline.get_history_item(i)+'\\n' for i in range(1,lbuf)]"],
+      addedLines: ["        lines = [readline.get_history_item(i)+'\\n' for i in range(1,lbuf+1)]"],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /Added "\+ 1"/);
+  });
+
+  it('flags a removed "+ 1" (twmb/franz-go#381)', () => {
+    const result = assessHunk({
+      filePath: 'pkg/kfake/pid.go',
+      removedLines: ['\t\tnext64 = (seq64 + int64(numRecs) + 1) % math.MaxInt32'],
+      addedLines: ['\t\tnext64 = (seq64 + int64(numRecs)) % math.MaxInt32'],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /Removed "\+ 1"/);
+  });
+
+  it('does not flag "+ 1" on a line with no index/bound shape', () => {
+    const result = assessHunk({ filePath: 'score.js', removedLines: ['  score = base * weight;'], addedLines: ['  score = base * weight + 1;'] });
+    assert.equal(result.level, 'low');
+  });
+
+  it('does not flag "+ 1" that only appears inside a string literal', () => {
+    const result = assessHunk({ filePath: 'ui.js', removedLines: ['  const label = "page end";'], addedLines: ['  const label = "page end + 1";'] });
+    assert.equal(result.level, 'low');
+  });
+
+  it('does not flag a comment gaining "+ 1"', () => {
+    const result = assessHunk({ filePath: 'buf.c', removedLines: ['  // copy up to len bytes'], addedLines: ['  // copy up to len + 1 bytes'] });
+    assert.equal(result.level, 'low');
+  });
+
+  it('does not flag "+ 2" or a "+ 1" that comes with other edits on the line', () => {
+    assert.equal(assessHunk({ filePath: 'a.py', removedLines: ['x = arr[len(arr) - 1]'], addedLines: ['x = arr[len(arr) - 2]'] }).reason.includes('Added'), false);
+    const result = assessHunk({ filePath: 'a.py', removedLines: ['end = start + size'], addedLines: ['end = offset + size + 1'] });
+    assert.doesNotMatch(result.reason, /Added "\+ 1"/);
+  });
+});
