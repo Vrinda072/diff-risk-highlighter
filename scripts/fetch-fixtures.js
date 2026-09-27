@@ -24,13 +24,17 @@
 //
 // FixtureEntry:
 //   { id, repo, number, category, summary, fetchedAt?,
-//     fixHunks: [{ file, header }]   // header = the hunk's "@@ ... @@" prefix
+//     fixHunks: [{ file, header }],  // header = the hunk's "@@ ... @@" prefix
+//     expectedFlags?: [{ file, header, why }]
 //   }
 // category is one of the CATEGORIES keys below. fixHunks lists the hunks
 // that carry the actual change the category is about — the fix, the
 // weakened assertion, the changed signature. It's [] when there's no such
 // hunk: "refactor" (negatives — every hunk should score low), "feature",
-// and "dependency-bump".
+// and "dependency-bump". expectedFlags (optional) lists hunks outside the
+// fix that a correct engine should still flag medium/high — e.g. a test in
+// the same PR that genuinely weakened an assertion — so they aren't
+// counted as false positives when measuring the engine.
 
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -202,7 +206,7 @@ function fetchFixtures(manifestFile, { refresh = false } = {}) {
   const metadata = readMetadata();
 
   for (const entry of manifest) {
-    const { id, repo, number, category, summary, fixHunks = [] } = entry;
+    const { id, repo, number, category, summary, fixHunks = [], expectedFlags = [] } = entry;
     const previous = metadata.find((m) => m.fixture === `${id}.diff`);
     if (!CATEGORIES[category]) throw new Error(`${id}: unknown category "${category}"`);
 
@@ -214,9 +218,9 @@ function fetchFixtures(manifestFile, { refresh = false } = {}) {
     const reuse = fs.existsSync(diffFile) && !refresh;
     const diff = reuse ? fs.readFileSync(diffFile, 'utf8') : gh(['pr', 'diff', String(number), '--repo', repo]);
     const headers = hunkHeaders(diff);
-    for (const fix of fixHunks) {
-      if (!headers.some((h) => h.file === fix.file && h.header === fix.header)) {
-        throw new Error(`${id}: fix hunk ${fix.file} ${fix.header} not found in the diff`);
+    for (const hunk of [...fixHunks, ...expectedFlags]) {
+      if (!headers.some((h) => h.file === hunk.file && h.header === hunk.header)) {
+        throw new Error(`${id}: hunk ${hunk.file} ${hunk.header} not found in the diff`);
       }
     }
 
@@ -235,6 +239,7 @@ function fetchFixtures(manifestFile, { refresh = false } = {}) {
       // the existing record's date for a reused file, else today.
       fetchedAt: entry.fetchedAt || (reuse && previous?.fetchedAt) || new Date().toISOString().slice(0, 10),
       fixHunks,
+      ...(expectedFlags.length ? { expectedFlags } : {}),
     };
     const i = metadata.findIndex((m) => m.fixture === record.fixture);
     if (i === -1) metadata.push(record);

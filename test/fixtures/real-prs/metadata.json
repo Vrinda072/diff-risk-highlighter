@@ -177,6 +177,18 @@
         "file": "contracts/smart-wallet/src/lib.rs",
         "header": "@@ -380,29 +380,19 @@"
       }
+    ],
+    "expectedFlags": [
+      {
+        "file": "contracts/smart-wallet/src/tests/test_auth.rs",
+        "header": "@@ -1394,12 +1394,10 @@",
+        "why": "assert_eq!(…, Err(Ok(Error::LastSigner))) weakened to assert!(….is_err())"
+      },
+      {
+        "file": "contracts/smart-wallet/src/tests/test_auth.rs",
+        "header": "@@ -1562,12 +1557,10 @@",
+        "why": "assert_eq!(…, Err(Ok(Error::LastAdminSigner))) weakened to assert!(….is_err())"
+      }
     ]
   },
   {
