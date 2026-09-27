@@ -630,3 +630,83 @@ describe('test files: weakened or removed assertions', () => {
     assert.equal(result.level, 'low');
   });
 });
+
+describe('concurrency: removed synchronization and new check-then-act', () => {
+  it('flags removed atomics — esrrhs/spp#52 reversed (the race the fix closed)', () => {
+    const result = assessHunk({
+      filePath: 'proxy/common.go',
+      removedLines: ['\t\t\tf.PongFrame.Time = atomic.LoadInt64(pongtime)'],
+      addedLines: ['\t\t\tf.PongFrame.Time = *pongtime'],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /Removed synchronization/);
+  });
+
+  it('flags a removed mutex Lock/Unlock pair', () => {
+    const result = assessHunk({
+      filePath: 'server/cache.go',
+      removedLines: ['\tc.mu.Lock()', '\tdefer c.mu.Unlock()', '\tc.items[k] = v'],
+      addedLines: ['\tc.items[k] = v'],
+    });
+    assert.equal(result.level, 'high');
+  });
+
+  it('does not flag swapping one primitive for another (RediSearch/RediSearch#11547: volatile bool -> atomic_bool)', () => {
+    const result = assessHunk({
+      filePath: 'deps/thpool/thpool.c',
+      removedLines: ['    volatile bool started[n_new_threads];'],
+      addedLines: ['    atomic_bool started[n_new_threads];'],
+    });
+    assert.doesNotMatch(result.reason, /synchronization/);
+  });
+
+  it('does not flag added synchronization (a race fix) as removed', () => {
+    const result = assessHunk({ filePath: 'proxy/common.go', removedLines: ['\t*pongtime = f.PingFrame.Time'], addedLines: ['\tatomic.StoreInt64(pongtime, f.PingFrame.Time)'] });
+    assert.doesNotMatch(result.reason, /synchronization/);
+  });
+
+  it('ignores lock words in comments, strings, and longer words (block, clock)', () => {
+    for (const removed of ['    // take the lock before touching state', '    log.info("lock released")', '    block = clock.tick()']) {
+      const result = assessHunk({ filePath: 'svc/worker.py', removedLines: [removed], addedLines: ['    pass'] });
+      assert.doesNotMatch(result.reason, /synchronization/, removed);
+    }
+  });
+
+  it('flags a new check-then-act on a shared map in concurrent code', () => {
+    const result = assessHunk({
+      filePath: 'app/cache.py',
+      removedLines: [],
+      addedLines: ['async def get(key):', '    if key not in _cache:', '        _cache[key] = await load(key)', '    return _cache[key]'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /check-then-act on "_cache"/);
+  });
+
+  it('does not flag check-then-act without any concurrency context', () => {
+    const result = assessHunk({
+      filePath: 'app/config.py',
+      removedLines: [],
+      addedLines: ['def defaults(opts):', '    if "timeout" not in opts:', '        opts["timeout"] = 30', '    return opts'],
+    });
+    assert.equal(result.level, 'low');
+  });
+
+  it('does not flag check-then-act when the hunk also adds a lock', () => {
+    const result = assessHunk({
+      filePath: 'app/cache.py',
+      removedLines: [],
+      addedLines: ['def get(key):  # called from worker threads', '    with _lock:', '        if key not in _cache:', '            _cache[key] = load(key)'],
+    });
+    assert.doesNotMatch(result.reason, /check-then-act/);
+  });
+
+  it('flags the Go map form: if _, ok := m[k]; !ok { m[k] = v } inside a goroutine', () => {
+    const result = assessHunk({
+      filePath: 'pkg/registry.go',
+      removedLines: [],
+      addedLines: ['\tgo func() {', '\t\tif _, ok := seen[id]; !ok {', '\t\t\tseen[id] = struct{}{}', '\t\t}', '\t}()'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /check-then-act on "seen"/);
+  });
+});
