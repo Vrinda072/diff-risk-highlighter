@@ -330,10 +330,58 @@
     return masked;
   }
 
+  // The other off-by-one shape: the fix *adds* (or drops) a `+ 1` / `- 1`
+  // instead of swapping a token — kmturbulenz/mglet-base#226
+  // (`idx = ... + (i-1)*kk*jj` -> `... - 1`), uqfoundation/dill#651
+  // (`range(1,lbuf)` -> `range(1,lbuf+1)`), microsoft/global-renewables-
+  // watch#12 (`randint(0, width - size)` -> `... + 1`), twmb/franz-go#381
+  // (a stray `+ 1` removed). Deliberately narrow: the pair must be the only
+  // difference on the line, the literal must be exactly 1, and the line
+  // must read like an index/bound expression (subscript, comparison, or a
+  // bound-ish identifier), so an ordinary `total = total + 1` rewrite of
+  // unrelated code doesn't qualify.
+  const STRING_LITERAL_RE = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\\n]|\\.)*`/g;
+  const BOUND_IDENT_RE = /(idx|index|len|length|size|count|end|start|begin|first|last|max|min|limit|bound|offset|pos|upper|lower|stop|range|capacity|slice)/i;
+  const BOUND_SYNTAX_RE = /\[|<=?|>=?|\.\./;
+
+  function looksLikeBoundExpression(tokens) {
+    return tokens.some((t) => (t.type === 'ident' && BOUND_IDENT_RE.test(t.value)) || (t.type === 'other' && BOUND_SYNTAX_RE.test(t.value)));
+  }
+
+  // If `longer` is `shorter` with exactly one `+ 1` / `- 1` token pair
+  // inserted, returns that pair as a string ("+ 1" / "- 1"), else null.
+  function insertedUnitStep(shorter, longer) {
+    if (longer.length !== shorter.length + 2) return null;
+    let p = 0;
+    while (p < shorter.length && shorter[p].value === longer[p].value) p++;
+    const [op, one] = [longer[p], longer[p + 1]];
+    if (!op || !one || (op.value !== '+' && op.value !== '-') || one.value !== '1') return null;
+    for (let i = p; i < shorter.length; i++) {
+      if (shorter[i].value !== longer[i + 2].value) return null;
+    }
+    return `${op.value} 1`;
+  }
+
+  function detectAddedUnitStep(removed, added) {
+    if (COMMENT_LINE_RE.test(removed) || COMMENT_LINE_RE.test(added)) return null;
+    const rTokens = tokenize(removed.replace(STRING_LITERAL_RE, '""'));
+    const aTokens = tokenize(added.replace(STRING_LITERAL_RE, '""'));
+    const addedStep = insertedUnitStep(rTokens, aTokens);
+    if (addedStep && looksLikeBoundExpression(aTokens)) {
+      return `Added "${addedStep}" to an index/bound expression on an otherwise unchanged line — off-by-one shape.`;
+    }
+    const removedStep = insertedUnitStep(aTokens, rTokens);
+    if (removedStep && looksLikeBoundExpression(rTokens)) {
+      return `Removed "${removedStep}" from an index/bound expression on an otherwise unchanged line — off-by-one shape.`;
+    }
+    return null;
+  }
+
   // Finds a hunk where one line was edited into an almost-identical line
   // that differs in exactly one token, and that token is a comparison /
   // range operator or an off-by-one-shaped integer literal change.
   // Modeled directly on alacritty#9027 (`..` -> `..=` in a range bound).
+  // Also catches the added/removed `± 1` shape (detectAddedUnitStep).
   function detectBoundaryChange(removedLines, addedLines, filePath) {
     const pairs = pairLines(
       removedLines.map((l) => maskVersionLiterals(l, filePath)),
@@ -342,6 +390,9 @@
     );
     for (const { removed, added } of pairs) {
       if (removed.trim() === added.trim()) continue;
+
+      const unitStep = detectAddedUnitStep(removed, added);
+      if (unitStep) return unitStep;
 
       const rTokens = tokenize(removed);
       const aTokens = tokenize(added);
