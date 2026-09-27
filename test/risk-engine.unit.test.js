@@ -530,3 +530,103 @@ describe('off-by-one by adding or removing a "± 1" token', () => {
     assert.doesNotMatch(result.reason, /Added "\+ 1"/);
   });
 });
+
+describe('test files: weakened or removed assertions', () => {
+  it('flags removed assertions (weaviate/weaviate#11801)', () => {
+    const result = assessHunk({
+      filePath: 'adapters/repos/db/vector/dynamic/index_test.go',
+      removedLines: ['\tassert.True(t, latency1 > latency2)'],
+      addedLines: [],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /Removed 1 test assertion/);
+  });
+
+  it('recognizes Django-style tests.py as a test file (goauthentik/authentik#13371)', () => {
+    const result = assessHunk({
+      filePath: 'authentik/stages/authenticator_email/tests.py',
+      removedLines: ['            self.assertTrue(device.confirmed)', '            self.assertNotIn(SESSION_KEY_EMAIL_DEVICE, session)'],
+      addedLines: [],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /Removed 2 test assertions/);
+  });
+
+  it('flags a loosened upper-bound threshold (google/jaxopt#642)', () => {
+    const result = assessHunk({
+      filePath: 'tests/lbfgsb_test.py',
+      removedLines: ['    self.assertLessEqual(fun(x), 1e-3)'],
+      addedLines: ['    self.assertLessEqual(fun(x), 1.5e-3)'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /threshold loosened \(1e-3 → 1\.5e-3\)/);
+  });
+
+  it('does not flag a tightened threshold or an updated expected value', () => {
+    const tightened = assessHunk({ filePath: 'tests/lbfgsb_test.py', removedLines: ['    self.assertLessEqual(fun(x), 1.5e-3)'], addedLines: ['    self.assertLessEqual(fun(x), 1e-3)'] });
+    assert.equal(tightened.level, 'low');
+    const updated = assessHunk({ filePath: 'tests/test_cart.py', removedLines: ['    self.assertEqual(len(cart.items), 3)'], addedLines: ['    self.assertEqual(len(cart.items), 4)'] });
+    assert.doesNotMatch(updated.reason, /loosened|assertion/i);
+  });
+
+  it('flags an assertion that lost a condition (elastic/apm-agent-python#2636)', () => {
+    const result = assessHunk({
+      filePath: 'tests/metrics/cpu_psutil_tests.py',
+      removedLines: ['    assert 0 < data["samples"]["system.cpu.total.norm.pct"]["value"] < 1'],
+      addedLines: ['    assert data["samples"]["system.cpu.total.norm.pct"]["value"] > 0'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /lost a condition/);
+  });
+
+  it('does not treat rewriting `assert x == y` as assertEqual(x, y) as a lost condition', () => {
+    const result = assessHunk({ filePath: 'tests/test_math.py', removedLines: ['    assert add(1, 2) == 3'], addedLines: ['    self.assertEqual(add(1, 2), 3)'] });
+    assert.equal(result.level, 'low');
+  });
+
+  it('flags an exact expected string replaced by a regex (aws/aws-sdk-js-v3#8212)', () => {
+    const result = assessHunk({
+      filePath: 'packages-internal/middleware-sdk-route53/src/middleware-sdk-route53.integ.spec.ts',
+      removedLines: ['        path: "/2013-04-01/change/my-change",'],
+      addedLines: ['        path: /^\\/20\\d\\d-\\d\\d-\\d\\d\\/change\\/my\\-change$/,'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /looser pattern/);
+  });
+
+  it('flags a strict matcher swapped for a truthiness check', () => {
+    const result = assessHunk({ filePath: 'src/cart.test.ts', removedLines: ['    expect(total).toEqual(42);'], addedLines: ['    expect(total).toBeTruthy();'] });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /toEqual.*toBeTruthy/);
+  });
+
+  it('flags assert_eq! with a specific error weakened to assert!(…is_err()) (stellar/passkey-kit#4)', () => {
+    const result = assessHunk({
+      filePath: 'contracts/smart-wallet/src/tests/test_auth.rs',
+      removedLines: ['    assert_eq!(', '        client.try_remove_signer(&policy_key),', '        Err(Ok(Error::LastSigner))', '    );'],
+      addedLines: ['    assert!(client', '        .try_remove_signer(&policy_key)', '        .is_err());'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /assert_eq!.*assert!/);
+  });
+
+  it('flags a newly skipped test', () => {
+    const result = assessHunk({ filePath: 'src/__tests__/login.test.js', removedLines: ["  it('rejects bad passwords', async () => {"], addedLines: ["  it.skip('rejects bad passwords', async () => {"] });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /skipped/);
+  });
+
+  it('only applies to test files', () => {
+    const result = assessHunk({ filePath: 'src/validate.py', removedLines: ['    assert amount > 0'], addedLines: [] });
+    assert.doesNotMatch(result.reason, /test assertion/);
+  });
+
+  it('does not flag moving an assertion within a test (same count before and after)', () => {
+    const result = assessHunk({
+      filePath: 'tests/test_api.py',
+      removedLines: ['    self.assertEqual(resp.status_code, 200)', '    data = resp.json()'],
+      addedLines: ['    data = resp.json()', '    self.assertEqual(resp.status_code, 200)'],
+    });
+    assert.equal(result.level, 'low');
+  });
+});
