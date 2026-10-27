@@ -177,3 +177,33 @@ describe('smoke tests on large/complex real PRs (no crashes, valid output shape)
     );
   });
 });
+
+describe('real PRs: gaps found by the 17-fixture human review, now fixed', () => {
+  it('mglet-base#226: every hunk of the off-by-one fix is now high', () => {
+    const hunks = loadHunks('mglet_offbyone.diff');
+    assert.equal(hunks.length, 3);
+    assert.ok(hunks.every((h) => h.level === 'high'), JSON.stringify(hunks.map((h) => h.level)));
+  });
+
+  it('squarelet#777: the race-condition fix is no longer invisible (retry flagged)', () => {
+    const hunks = loadHunks('squarelet_race.diff');
+    assert.ok(hunks.some((h) => /retry/i.test(h.reason)), JSON.stringify(hunks.map((h) => h.reason)));
+  });
+
+  it('passkey-kit#4: prose/version noise is gone, and the real fix is still high', () => {
+    const hunks = loadHunks('passkey_authbypass.diff');
+    const high = hunks.filter((h) => h.level === 'high');
+    assert.ok(high.length <= 5, `expected few high hunks, got ${high.length}`);
+    assert.ok(
+      high.every((h) => !/\.(md|txt)$/i.test(h.filePath) && !/package\.json$|version\.ts$/.test(h.filePath)),
+      `prose/version files must not be high: ${JSON.stringify(high.map((h) => h.filePath))}`
+    );
+    assert.ok(high.some((h) => h.filePath.endsWith('context.rs')), 'the real fix (context.rs) must stay high');
+    assert.ok(high.some((h) => h.filePath.endsWith('smart-wallet/src/lib.rs')), 'the real fix (lib.rs) must stay high');
+  });
+
+  it('stelinter: a CI dependency bump produces nothing above low', () => {
+    const hunks = loadHunks('stelinter_depbump.diff');
+    assert.ok(hunks.every((h) => h.level === 'low'));
+  });
+});

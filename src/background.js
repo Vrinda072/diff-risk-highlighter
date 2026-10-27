@@ -75,3 +75,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     .catch((err) => sendResponse({ error: 'exception', detail: String(err) }));
   return true; // keep the message channel open for the async sendResponse above
 });
+
+// Toolbar button: one click flips highlighting on/off. content.js already
+// listens to chrome.storage.onChanged, so every open PR tab updates live.
+const ENABLED_KEY = 'driskhEnabled';
+
+function paintBadge(enabled) {
+  chrome.action.setBadgeText({ text: enabled ? '' : 'OFF' });
+  chrome.action.setBadgeBackgroundColor({ color: '#6e7681' });
+}
+
+chrome.action.onClicked.addListener(async () => {
+  const { [ENABLED_KEY]: current = true } = await chrome.storage.local.get(ENABLED_KEY);
+  await chrome.storage.local.set({ [ENABLED_KEY]: !current });
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[ENABLED_KEY]) paintBadge(changes[ENABLED_KEY].newValue !== false);
+});
+
+chrome.storage.local.get(ENABLED_KEY).then(({ [ENABLED_KEY]: v = true }) => paintBadge(v));
