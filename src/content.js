@@ -305,7 +305,7 @@
     const total = headerRows.length;
 
     const pill = (level, n) =>
-      `<span class="driskh-pill driskh-pill--${level}${n === 0 ? ' driskh-pill--zero' : ''}"><b>${n}</b> ${level}</span>`;
+      `<span class="driskh-pill driskh-pill--${level} driskh-count driskh-count--${level}${n === 0 ? ' driskh-pill--zero' : ''}"><b>${n}</b> ${level}</span>`;
 
     const meterHtml = ['high', 'medium', 'low']
       .filter((level) => counts[level] > 0)
@@ -318,6 +318,7 @@
       <span class="driskh-summary-counts">
         ${pill('high', counts.high)}${pill('medium', counts.medium)}${pill('low', counts.low)}
       </span>
+      <span class="driskh-total">${total} hunk${total === 1 ? '' : 's'} scanned</span>
       <span class="driskh-meter" role="img" aria-label="${counts.high} high, ${counts.medium} medium, ${counts.low} low risk hunks of ${total}">${meterHtml}</span>
       ${
         visibleLinks.length > 0
@@ -466,7 +467,7 @@
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 8px 14px;
+        gap: 8px 12px;
         margin-bottom: 12px;
         padding: 8px 14px;
         border: 1px solid var(--borderColor-default, #d1d9e0);
@@ -482,7 +483,7 @@
         background: linear-gradient(135deg, var(--driskh-high-solid) 0 50%, var(--driskh-med-solid) 50% 100%);
       }
       .driskh-summary-counts { display: inline-flex; gap: 6px; }
-      .driskh-summary-counts--empty, .driskh-summary-clear { color: var(--driskh-muted); }
+      .driskh-summary-counts--empty, .driskh-summary-clear, .driskh-total { color: var(--driskh-muted); }
       .driskh-pill {
         display: inline-flex; align-items: baseline; gap: 4px;
         padding: 1px 9px; border-radius: 2em; font-weight: 500;
@@ -494,7 +495,7 @@
       .driskh-pill--zero { opacity: 0.55; }
 
       .driskh-meter {
-        display: inline-flex; width: 120px; height: 8px; gap: 2px;
+        display: inline-flex; width: 72px; height: 8px; gap: 2px;
         border-radius: 4px; overflow: hidden;
       }
       .driskh-meter-seg { display: block; min-width: 4px; border-radius: 2px; }
@@ -505,7 +506,7 @@
       .driskh-summary-jumps { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; }
       .driskh-jump-label { color: var(--driskh-muted); }
       .driskh-jump-chip {
-        padding: 0 9px; border-radius: 2em; cursor: pointer;
+        padding: 0 8px; border-radius: 2em; cursor: pointer;
         border: 1px solid var(--driskh-high-solid);
         background: var(--driskh-high-bg); color: var(--driskh-high);
         font: 500 11px/18px var(--fontStack-monospace, ui-monospace, monospace);
@@ -543,6 +544,7 @@
       html.driskh-disabled .driskh-explain-btn,
       html.driskh-disabled .driskh-explanation,
       html.driskh-disabled .driskh-summary-counts,
+      html.driskh-disabled .driskh-total,
       html.driskh-disabled .driskh-meter,
       html.driskh-disabled .driskh-summary-jumps,
       html.driskh-disabled .driskh-summary-clear { display: none; }
@@ -560,10 +562,11 @@
   }
 
   function assessAndMark(hunk) {
-    // GitHub emits a trailing "expand down" boundary row after the last
-    // change; it has no added/removed lines, so counting it as a scanned
-    // hunk would inflate the summary ("2 hunks" on a 1-hunk PR).
-    if (hunk.addedLines.length === 0 && hunk.removedLines.length === 0) {
+    // GitHub emits a trailing "expand to end of file" boundary row after a
+    // file's last hunk: same boundary cell, but no @@ header and no lines
+    // under it. Counting it as a scanned hunk inflated the summary ("2 hunks"
+    // on a 1-hunk PR). Requires zero rows so a real hunk is never skipped.
+    if (hunk.rows.length === 0 && hunk.addedLines.length === 0 && hunk.removedLines.length === 0) {
       hunk.headerRow.dataset.driskhProcessed = 'true';
       return;
     }
