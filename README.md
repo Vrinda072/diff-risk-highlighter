@@ -18,7 +18,7 @@ A Chrome extension that reads GitHub's **Files changed** tab and flags risky hun
 
 ## Contents
 
-[Why](#why) · [What you see](#what-you-see) · [How it works](#how-it-works) · [The risk engine](#the-risk-engine) · [Does it work?](#does-it-work) · [Install](#install) · [Develop](#develop) · [Known Limitations / Future Work](#known-limitations--future-work) · [References](#references) · [Layout](#project-layout)
+[Why](#why) · [What you see](#what-you-see) · [How it works](#how-it-works) · [The risk engine](#the-risk-engine) · [Does it work?](#does-it-work) · [Install](#install) · [Develop](#develop) · [Known Limitations / Future Work](#known-limitations--future-work) · [References](#references) · [License](#license) · [Layout](#project-layout)
 
 ## Why
 
@@ -158,6 +158,10 @@ node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 16. Playwright: [testing Chrome extensions](https://playwright.dev/docs/chrome-extensions) (the e2e suite and the demo recording).
 17. [tree-sitter](https://tree-sitter.github.io/tree-sitter/): the parser library a v2 could build on. GNU diffutils: [unified diff format](https://www.gnu.org/software/diffutils/manual/html_node/Unified-Format.html), which the test fixtures use.
 18. The 42 real pull requests behind the calibration set, with source links and what each one tests: [test/fixtures/real-prs/README.md](test/fixtures/real-prs/README.md).
+
+## License
+
+[MIT](LICENSE)
 
 ## Project layout
 
