@@ -1,541 +1,146 @@
 # Diff Risk Highlighter
 
-A Chrome extension that scans a GitHub pull request's "Files changed" tab
-and flags which diff hunks are actually risky to review carefully versus
-which are safe to skim — using static heuristics, no LLM required.
+A Chrome extension that reads a GitHub pull request's **Files changed** tab and tells you which hunks deserve careful review and which are safe to skim. It uses plain static heuristics, so it runs instantly, offline, and with no API key.
 
-> **Status:** all 5 planned milestones are built (scaffold, risk engine,
-> DOM integration, polish/scale, optional LLM explanations), plus a v1.1
-> pass. GitHub rolled out a full React rewrite of the Files Changed tab
-> sometime between 2026-08-26 and 2026-09-23 (`/pull/<n>/files` now
-> redirects to `/pull/<n>/changes` with an entirely different DOM) —
-> caught by re-verifying the extension live against real PRs rather than
-> assuming the original build still held. `src/content.js` now scans
-> both the classic DOM and the new React grid unconditionally on every
-> pass, verified live against the same SQL-injection and
-> signature-change fixture PRs used during the original calibration
-> (correct classification, correct badge, correct summary-bar counts on
-> both). See [docs/github-diff-dom.md](docs/github-diff-dom.md) for the
-> full DOM capture and selector mapping.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/screenshot-dark.png">
+  <img alt="Diff Risk Highlighter on a pull request: a summary bar with risk counts, and HIGH / MEDIUM badges with colored edges on flagged hunks" src="docs/img/screenshot-light.png">
+</picture>
 
-## The problem
+<sub>Rendered by headless Chrome from [a fixture page](test/dom/pull/999/changes/new-ui-fixture.html) that copies GitHub's current diff markup, running the real `content.js`. Follows GitHub's light/dark theme.</sub>
 
-Code review attention is scarce and PRs bury the parts that matter under
-mechanical changes: renamed variables, reformatted imports, generated
-files, moved-but-unchanged blocks. Reviewers end up either skimming
-everything at the same shallow depth, or reading every hunk with equal
-care and running out of attention before they reach the part that
-actually changed behavior. Diff Risk Highlighter triages hunks *before*
-you start reading, so you can spend your attention where it's likely to
-matter.
+## What it does
 
-## How risk detection works
+- **Flags risky hunks** with a colored edge and a `HIGH` / `MEDIUM` badge. Hover a badge to see *why*.
+- **Leaves safe hunks alone.** Reformatting, renames, comments, docs, generated and vendored files are scored low and left untouched.
+- **Summarizes the PR** in a sticky bar: counts, a proportional risk meter, and one-click jumps to every high-risk hunk.
+- **Optional "Explain" button** on high-risk hunks asks Claude for a one-sentence explanation. Nothing leaves your browser unless you click it.
 
-The engine ([src/risk-engine.js](src/risk-engine.js)) takes one diff
-hunk — its added lines, removed lines, and file path — and returns a
-`{ level, reason }` verdict. No AST, no language-specific parser: it's
-regex/text heuristics on purpose (see
-[Known Limitations](#known-limitations--future-work) for the tradeoffs
-that come with that). It was calibrated against real merged PRs, not
-invented examples — see
-[test/fixtures/real-prs/README.md](test/fixtures/real-prs/README.md)
-for the full list and what each one caught.
+## How it works
 
-**Checked first, short-circuits to low risk** (a hunk that's provably
-behavior-preserving is safe to skim no matter what words appear in it):
-
-1. **Lockfile/generated or vendored file** — `package-lock.json`,
-   `yarn.lock`, `Cargo.lock`, `*.min.js`, protobuf output, `vendor/`,
-   `node_modules/`, `third_party/`, etc. Never hand-reviewed in practice.
-   Path rules adapted from
-   [github-linguist](https://github.com/github-linguist/linguist)'s
-   `generated.rb` and `vendor.yml`, which is what GitHub itself uses to
-   classify these files.
-2. **Formatting-only change** — added/removed lines are identical once
-   whitespace and trailing commas are stripped (a Prettier/Black-style
-   reformat, even one that re-wraps a call across more lines).
-3. **Comment/docstring-only change** — every changed line is a comment.
-4. **Mechanical rename** — every line that differs does so *only* by a
-   consistent identifier substitution (same old name always maps to the
-   same new name). Catches the "renamed variable that looks like a big
-   logic change" case — e.g. django/django#21696 renaming a public API
-   constant (`RAISE` → `FETCH_RAISE`) across 15 files.
-
-**Risk-raising signals** (highest-severity match wins; level is `high`
-or `medium`):
-
-| Signal | Level | Why |
-|---|---|---|
-| SQL built via string concatenation | high | A SQL verb (`SELECT`/`INSERT`/`UPDATE`/`DELETE`) and a clause (`FROM`/`WHERE`/`INTO`/`VALUES`) *and* string-concatenation syntax, all within a few lines of each other. Modeled on a real SQL-injection fix. |
-| Comparison/range boundary changed | high | A line edited into an almost-identical line differing in exactly one token, where that token is a confusable operator pair (`<`/`<=`, `..`/`..=`, `==`/`===`, …) or an integer literal shifted by 1. Classic off-by-one shape — modeled on a real 1-line Rust fix (`..` → `..=`) that a line-count heuristic would've waved through as trivial. Also catches the other shape: a `+ 1`/`- 1` *added to or removed from* an index/bound expression on an otherwise unchanged line (strings and comments ignored; the line must contain a subscript, a comparison, or a bound-like name such as `idx`/`len`/`size`/`end`/`range`). |
-| Removed exception handling | high | `try`/`catch`/`except`/`finally` occurrences *decrease* between removed and added lines (not just "mentioned in removedLines" — a reformatted-but-kept try/catch doesn't count). |
-| Removed synchronization | high | Fewer lock/mutex/`synchronized`/atomic uses (including lock-named variables like `self._lock`) on the added side than the removed side. Swapping one primitive for another (`volatile` → `atomic_bool`) nets out. |
-| Security-sensitive keywords | high | `password`, `jwt`, `csrf`, `authenticat(e/ion)`, `Content-Security-Policy`, etc. Deliberately excludes generic words like `admin`, `token`, `session`, `auth\*` that collided constantly with ordinary code during calibration (see limitations). |
-| Removed conditional branch | medium (high if it also removes a `return`/`raise`/`throw`, or spans ≥3 conditional lines) | A static heuristic can't prove a removed `if`/`else`/`switch` was truly dead code — it can only tell you to go check, which is exactly what happened in three real "dead code cleanup" PRs used as fixtures here. |
-| Function signature changed | medium | A `def`/`function`/`fn`/`func` declaration with the same name appears on both sides with a different parameter list — catches things as small as a single added default value. |
-| Weakened or removed test assertion | medium | Test files only: fewer assertions, a strict matcher swapped for a looser one (`toEqual` → `toBeTruthy`, `assert_eq!` → `assert!`), an exact expected string replaced by a pattern, a bound/tolerance moved the permissive way, an assertion losing a comparison, or a newly skipped test. An expected value that merely *changes* isn't flagged. |
-| New check-then-act in concurrent code | medium | A membership check followed by a write to the same container (`if k not in c` … `c[k] =`, `!m.has(k)` … `m.set(k`, Go's `_, ok := m[k]`) in a hunk that visibly runs concurrently (threads, goroutines, async, executors) and adds no lock. Deliberately narrow. |
-| Large hunk, no other signal | medium | Fallback for hunks over ~40 changed lines that didn't trip anything more specific. |
-
-Anything left over is **low** risk.
-
-**Documentation files** (`CHANGELOG`, `README`, `*.md`/`*.rst`/…,
-anything under `docs/`; adapted from linguist's `documentation.yml`)
-skip the security-keyword and boundary-change detectors and the
-large-hunk fallback. Prose that *describes* an authorization fix isn't
-an authorization change. The structural detectors (removed error
-handling, removed conditional, signature change, SQL shape) still run
-on them. The boundary-change detector also ignores **version-shaped
-numbers**: semver-like literals anywhere (`"0.16.2"` → `"0.16.3"`), and
-any quoted version value in `package.json`, `Cargo.toml`, or
-`pyproject.toml`. Both rules come from
-[stellar/passkey-kit#4](https://github.com/stellar/passkey-kit/pull/4),
-described below.
-
-### A note on why the keyword lists look narrow
-
-The first pass at the SQL and security heuristics used broad `\w*`
-wildcards and single common words (`admin`, `auth`, `token`, `delete`).
-Running that against real PRs — not toy examples — immediately produced
-absurd results: every hunk touching `django.contrib.admin` came back
-"high risk" because the word "admin" is the app's name, and a 300-line
-Django test file got flagged as SQL injection because it contained
-`.join(`, an f-string, and the English words "select" and "delete" in
-unrelated places. Both were tightened (word-boundary-only matches, no
-wildcards, and — for SQL — requiring the verb/clause/concatenation
-signals to co-occur within a small sliding window of lines) until they
-stopped firing on that noise while still catching the real fixtures.
-That back-and-forth is preserved as regression tests in
-[test/risk-engine.real-diffs.test.js](test/risk-engine.real-diffs.test.js).
-
-### What a 17-fixture human review actually found
-
-Calibration tests assert the engine gets specific fixtures right; they
-don't tell you where it's still wrong. So after the fixture set grew to
-17 real merged PRs, every one was run through `assessHunk` and the
-output read hunk-by-hunk, the same way a reviewer would judge whether
-the flags make sense. That pass found three real gaps. They weren't
-fixed at the time, on purpose, since fixing a heuristic without more
-real-PR calibration tends to trade one false positive/negative for
-another. All three have since been addressed and checked against the
-42-fixture set (see [test/fixtures/real-prs/README.md](test/fixtures/real-prs/README.md)):
-
-- **Fixed: a same-shape, different-cause off-by-one was missed.**
-  [`mglet_offbyone.diff`](test/fixtures/real-prs/mglet_offbyone.diff)
-  ([kmturbulenz/mglet-base#226](https://github.com/kmturbulenz/mglet-base/pull/226))
-  fixes a real indexing bug by *appending* `- 1` to an array-index
-  expression (`idx = ... + (i-1)*kk*jj` →
-  `idx = ... + (i-1)*kk*jj - 1`). The boundary-change detector only
-  fires when exactly one token differs between two otherwise-identical
-  lines (`<` → `<=`, `2` → `3`) — it's built to catch an operator or
-  literal being *swapped*, not new tokens being *added*. This PR scores
-  entirely `low`. A real off-by-one fix, invisible to the engine.
-  **Now:** an added or removed `± 1` in an index/bound expression is
-  flagged high. That catches this PR (3/3 hunks) and the three other
-  real examples of the shape (dill#651, global-renewables-watch#12,
-  franz-go#381), with no change to any other fixture.
-- **Partly addressed: there was no heuristic for concurrency bugs at all.**
-  [`squarelet_race.diff`](test/fixtures/real-prs/squarelet_race.diff)
-  ([MuckRock/squarelet#777](https://github.com/MuckRock/squarelet/pull/777))
-  is a genuine race-condition fix and gets zero `high` flags. There's
-  nothing in the engine that looks for the shape of a concurrency bug
-  (missing lock/check-then-act patterns, shared mutable state) —
-  because nothing was ever built to. This isn't a mistuned threshold,
-  it's a category the heuristics don't cover yet.
-  **Now:** a first, conservative heuristic flags *removed*
-  synchronization and new unlocked check-then-act patterns. It still
-  scores all six race-*fix* fixtures the same as before, because fixes
-  *add* synchronization. Run on those fixes reversed (re-introducing
-  each race) it flags 4 of the 6, and it flags nothing in the other 36
-  fixtures either way. squarelet#777 and nats-server#8647 (a lookup
-  moved *inside* an existing lock) remain misses.
-- **Fixed: prose and version bumps diluted a correct flag on the PR
-  that matters most.**
-  [`passkey_authbypass.diff`](test/fixtures/real-prs/passkey_authbypass.diff)
-  ([stellar/passkey-kit#4](https://github.com/stellar/passkey-kit/pull/4))
-  is a real authorization-bypass fix. The engine *does* correctly flag
-  the actual fix (`context.rs`, `lib.rs`) as `high` — but returns 15
-  `high` hunks total for the PR, most of them `CHANGELOG.md`/
-  `README.md` prose that merely *describes* an authorization fix in
-  English, plus a `package.json`/version-string bump (`"0.16.2"` →
-  `"0.16.3"`) that the off-by-one detector treats identically to a loop
-  boundary shifting by one. The security-keyword and boundary-change
-  detectors both do their job correctly in isolation; neither one
-  currently excludes non-code files or version-literal-shaped numbers,
-  so on a PR that's genuinely about security, the one flag that matters
-  is buried in fourteen that don't.
-  **Now:** documentation files skip those two detectors, and version-shaped
-  numbers are masked before the boundary check (see
-  [How risk detection works](#how-risk-detection-works)). This PR goes
-  from 15 high to 8. The 3 fix hunks in `context.rs`/`lib.rs` stay high;
-  all 7 prose/version hunks that were high are now low. The other 5
-  highs are the PR's own auth tests (`test_auth.rs`,
-  `test_integration.rs`), which use the same security vocabulary. No
-  other fixture's high count changed; `django_feature` loses 2 medium
-  flags on long prose hunks in its `docs/`.
-
-Reproducible with the same one-liner used for this pass:
-
-```bash
-node -e '
-const fs = require("fs"), path = require("path");
-const { assessHunk } = require("./src/risk-engine.js");
-const { parseDiff } = require("./test/helpers/parse-diff.js");
-const dir = "test/fixtures/real-prs";
-for (const f of fs.readdirSync(dir).filter(f => f.endsWith(".diff")).sort()) {
-  const hunks = parseDiff(fs.readFileSync(path.join(dir, f), "utf8"));
-  const c = { high: 0, medium: 0, low: 0 };
-  hunks.forEach(h => c[assessHunk(h).level]++);
-  console.log(f, hunks.length, "hunks ->", c);
-}'
+```mermaid
+flowchart LR
+    A["GitHub PR<br/>Files changed tab"] -->|"MutationObserver"| B["content.js<br/>find hunks, read lines"]
+    B -->|"added + removed lines"| C["risk-engine.js<br/>assessHunk()"]
+    C -->|"level + reason"| D["Badges, edge stripes,<br/>summary bar"]
+    D -.->|"click Explain"| E["background.js"]
+    E -.-> F[("Anthropic API")]
 ```
 
-## How it shows up on the page
+`risk-engine.js` knows nothing about the DOM. It takes one hunk and returns `{ level, reason }`, which is why it is unit-testable in plain Node. `content.js` handles everything GitHub-specific, for both GitHub's classic diff markup and its newer React layout (`/changes`).
 
-Wired into `src/content.js`: for each `<td class="blob-code-hunk">`
-boundary found in a file's diff table (see
-[docs/github-diff-dom.md](docs/github-diff-dom.md) for why that's less
-trivial than it sounds), the hunk's added/removed lines are extracted
-and run through the engine. Medium/high hunks get:
+### The risk engine
 
-- a colored left edge on every row in that hunk, via `box-shadow: inset`
-  (never `border`, so nothing reflows or shifts GitHub's own layout), and
-- a small `HIGH`/`MEDIUM` badge appended into the hunk's own `@@ ... @@`
-  header cell, with the reason as its tooltip.
-
-Low-risk hunks are left completely untouched — the goal is to draw the
-eye to what needs it, not paint every row a color.
-
-A sticky summary bar is inserted just above the file list: total hunks
-scanned, the high/medium/low breakdown, and a row of clickable chips
-(one per high-risk file) that `scrollIntoView` to that hunk. It's
-`position: sticky` at the same offset as GitHub's own per-file sticky
-headers, measured from the toolbar's actual height rather than a
-hardcoded pixel value. The bar also carries a **Highlighting** checkbox —
-switching it off hides every marker/badge/stat instantly via a single CSS
-class on `<html>` (no re-render, no data thrown away) and persists the
-choice with `chrome.storage.local`, so it survives the full-page reloads
-that happen when switching between a PR's Conversation/Files-changed tabs
-(see Milestone 1's Turbo findings — an in-memory-only flag would reset
-constantly in practice).
-
-## Handling scale and lazy-loading
-
-GitHub itself defers diff content for large PRs and large individual
-files: a file's `<table class="diff-table">` doesn't exist until GitHub
-swaps it in from an `<include-fragment>`, either automatically or behind
-a "Load diff" click. Verified this live against a real PR
-([BOINC/boinc#7243](https://github.com/BOINC/boinc/pull/7243), a
-2,848-line file deletion hidden behind "Load diff") — clicking it fires
-exactly the kind of DOM mutation this extension's `MutationObserver`
-already listens for, and the newly-loaded hunk was picked up and
-classified (`medium`, "Large hunk") on the very next scheduled rescan
-with no extra code needed. The same mechanism handles files that are
-wholly new or wholly deleted (all-additions/all-deletions hunks) — the
-engine already scores an empty `addedLines`/`removedLines` side
-correctly, and GitHub still emits a normal `td.blob-code-hunk` boundary
-for them (just a non-expandable variant, since there's no context to
-expand).
-
-The part that *did* need work: re-scanning efficiently at scale. Every
-scheduled rescan originally re-walked every row of every file's table,
-even ones that hadn't changed since the last scan — fine for a handful
-of files, wasteful once a PR has 100+ of them or one huge file. Each
-file now caches its hunk-header count (`td.blob-code-hunk` occurrences)
-and is skipped entirely if that count hasn't changed, so a no-op rescan
-only pays for a cheap count check per file instead of walking every row.
-
-Measured with [test/perf/synthetic-large-diff.html](test/perf/synthetic-large-diff.html)
-(150 synthetic files × 3 hunks = 450 hunks, open it in a browser or via
-`.claude/launch.json`'s `static-server` config): the *cold* first-pass
-scan is unaffected either way (~30–50ms, and dominated by one-time
-JIT/layout warmup noise — confirmed by swapping run order and watching
-which version "wins" flip). The number that actually matters is the
-*warm* rescan — what fires on every unrelated DOM mutation after the
-page has settled (a "Viewed" checkbox, a lazy-loaded avatar, GitHub's
-own UI) — measured as a median over 8 reps:
-
-| | before (walks every row) | after (skips unchanged files) |
-|---|---|---|
-| warm no-op rescan, 450 hunks | ~1.6ms | ~0.1ms |
-
-A roughly 16x reduction on a no-op rescan, and — more importantly than
-the specific number — it turns the cost from *O(total rows across every
-file)* into *O(file count)*, which is what actually determines whether
-this scales past 150 files to 500+.
-
-### The bug that mattered most: the extension retriggering itself
-
-While instrumenting the live-page tests above, the same `MutationObserver`
-that watches for GitHub's own changes turned out to also be watching
-*this extension's own output* — appending a badge (`appendChild`) and
-rewriting the summary bar (`bar.innerHTML = ...`) are both childList
-mutations under `{childList: true, subtree: true}`. The result: after
-the very first scan, the script kept re-triggering itself indefinitely,
-with no user interaction at all. Confirmed by instrumenting
-`MutationObserver` globally on a real, otherwise-idle PR page and
-counting callback invocations: **89 scans in 8 seconds**, climbing
-without bound the whole time it was left running.
-
-Fixed two ways, one load-bearing and one a nice-to-have:
-
-1. **`observer.disconnect()` for the duration of the script's own
-   synchronous DOM writes**, reconnecting immediately after. Since
-   JavaScript is single-threaded, nothing else can mutate the page
-   during that window, so this can't miss a genuine external change —
-   it only blinds the observer to writes it caused itself.
-2. The summary bar now caches the last HTML it rendered and skips the
-   `innerHTML` write entirely when a rescan produces identical content
-   — avoiding the reflow/paint cost even for the (now harmless, but
-   still wasteful) case of a genuine external mutation that doesn't
-   actually change anything the bar shows.
-
-Re-measured after the fix on the same live page, same instrumentation:
-**1 scan total**, stable for the full observation window. Locked in as a
-permanent regression check —
-[test/dom/pull/999/files/self-trigger-regression.html](test/dom/pull/999/files/self-trigger-regression.html)
-loads the *actual* `src/risk-engine.js` and `src/content.js` (not
-copies) against a small synthetic diff and asserts the mutation-callback
-count stops growing after the initial scan. It lives at that specific
-nested path so the URL itself satisfies the content script's
-`/pull/<n>/files` page-detection gate without needing to fake
-`location.pathname`.
-
-## Optional LLM explanations
-
-Every high-risk hunk's badge is joined by an **Explain** button. Nothing
-about this feature runs — no network request, no permission prompt
-beyond what the extension already has — unless that button is clicked.
-
-Clicking it the first time asks for an Anthropic API key (a plain
-`prompt()`, stored only in `chrome.storage.local` — never synced,
-logged, or sent anywhere except directly to `api.anthropic.com` when you
-click "Explain" again). The request itself is made from
-[src/background.js](src/background.js), a small MV3 service worker, not
-from the content script: a content script's `fetch()` is subject to the
-CSP of the page it's injected into, and GitHub's CSP does not allow
-requests to arbitrary third-party API hosts — an extension's background
-service worker isn't bound by that page's CSP, only by its own declared
-`host_permissions` (`https://api.anthropic.com/*` in
-[manifest.json](manifest.json)). Verified end-to-end (button → prompt →
-stored key → retried request → rendered response) with a mocked
-background response, since exercising this for real needs a live API
-key.
-
-## Demo
-
-_TODO: demo GIF here (`docs/demo.gif`) — recorded manually, since loading
-an unpacked extension requires a native file picker that can't be
-automated._
-
-## Setup
-
-1. Clone or download this repository.
-2. Open `chrome://extensions` in Chrome.
-3. Enable **Developer mode** (top-right toggle).
-4. Click **Load unpacked** and select this project's root folder.
-5. Open any GitHub pull request's **Files changed** tab
-   (`github.com/<owner>/<repo>/pull/<number>/files`) — you should see a
-   summary bar above the file list, and colored edges/badges on any
-   medium- or high-risk hunks.
-
-No build step, no runtime dependencies — it's a plain Manifest V3
-content script. The test suite uses Node's built-in test runner (Node
-18+), so there's nothing to `npm install` for that either:
-
-```bash
-npm test
+```mermaid
+flowchart TD
+    H["One hunk:<br/>file path + added lines + removed lines"] --> S{"Provably safe?"}
+    S -->|"generated or vendored file,<br/>formatting only, comments only,<br/>pure rename"| L["LOW"]
+    S -->|"no"| R["Run the risk detectors"]
+    R --> Q{"Any signal?"}
+    Q -->|"yes"| W["Highest severity wins:<br/>HIGH or MEDIUM, plus the reason"]
+    Q -->|"no"| Z{"Over 40 lines of code?"}
+    Z -->|"yes"| M["MEDIUM"]
+    Z -->|"no"| L
 ```
 
-This runs [test/risk-engine.unit.test.js](test/risk-engine.unit.test.js)
-(heuristic-by-heuristic, including the dead-code-removal and
-looks-like-a-rename edge cases) and
-[test/risk-engine.real-diffs.test.js](test/risk-engine.real-diffs.test.js)
-(the calibration pass against real PR fixtures described above).
+Safe-transform checks run **first**, so renaming a variable called `password` is still low risk. Formatting-only includes whitespace, trailing commas, and quote style (but not when the line interpolates, since `"$x"` and `'$x'` differ in shell).
 
-The DOM-integration perf harness needs a real browser (it generates and
-times 150 synthetic diff files), so it's separate from `npm test`. Serve
-the project root and open it — for example with the `static-server`
-config already in `.claude/launch.json`:
+| Signal | Level | Notes |
+|---|---|---|
+| SQL built by string concatenation | High | verb + clause + concatenation within a few lines |
+| Off-by-one shape: operator swap (`..` to `..=`), literal shifted by 1, or a `± 1` term added or removed from a bound/index expression | High | version-shaped numbers are ignored |
+| `try`/`catch`/`except` count decreased | High | a re-indented try/catch doesn't count |
+| Removed synchronization (lock, mutex, atomic, `synchronized`) | High | swapping one primitive for another nets out |
+| Security keywords (`password`, `jwt`, `csrf`, `authorization`, ...) in source code | High | matches inside `verify_password` / `checkPassword`; **Medium** inside test files |
+| Added locking or atomicity | Medium | most race fixes add synchronization |
+| New check-then-act on a shared container, in concurrent code, with no lock | Medium | deliberately narrow |
+| Weakened or removed test assertion, or a newly skipped test | Medium | test files only |
+| Conditional branch removed | Medium | High if it also drops a `return`/`raise`, or 3+ branches |
+| Function signature changed | Medium | catches a single added default value |
+| Large hunk with no other signal | Medium | fallback |
+
+Documentation files (`*.md`, `CHANGELOG`, `docs/`, ...) skip the security-keyword and boundary detectors and the large-hunk fallback, since prose that *describes* an authorization fix isn't one.
+
+## Install
+
+No build step and no runtime dependencies.
+
+1. Open `chrome://extensions` and turn on **Developer mode**.
+2. Click **Load unpacked** and choose this folder.
+3. Open any pull request's **Files changed** tab.
+
+The toolbar icon toggles highlighting on and off (an `OFF` badge shows when it's disabled). The first time you click **Explain**, it asks for an Anthropic API key, which is stored only in `chrome.storage.local` and sent only to `api.anthropic.com`.
+
+## Develop
 
 ```bash
+npm test          # unit, real-PR and fixture-metadata tests (Node's built-in runner, no install needed)
+npm run icons     # regenerate icons/ (dependency-free PNG encoder)
 python3 -m http.server 8934
 ```
 
-then visit `http://localhost:8934/test/perf/synthetic-large-diff.html`,
-or `http://localhost:8934/test/dom/pull/999/files/self-trigger-regression.html`
-for the self-triggering-observer regression check described below.
+With the server running, open these pages. Each runs the **real** `src/` files and prints PASS or FAIL:
+
+| Page | Checks |
+|---|---|
+| `/test/dom/pull/999/changes/new-ui-fixture.html` | 22 checks against GitHub's React markup: classification, summary bar, Explain, toggle, remount and tab-switch recovery, no self-triggering loop. Add `?theme=dark` for dark mode. |
+| `/test/dom/pull/999/files/self-trigger-regression.html` | Classic markup, plus the mutation-observer loop guard |
+| `/test/perf/synthetic-large-diff.html` | 150 files / 450 hunks scan timing |
 
 ### End-to-end tests (Playwright)
 
-The E2E suite loads this folder as an unpacked extension into Chromium
-(`--load-extension`) and runs it on the live GitHub "Files changed" page
-of every PR behind `test/fixtures/real-prs/`. It checks that the summary
-bar renders, that high/medium hunks get badges, and that the bar's counts
-match what the risk engine gives for the fixture diff. It needs network
-access to github.com, so it's separate from `npm test` and isn't run in
-CI:
+The e2e suite loads this folder as a real unpacked extension in Chromium and runs it on the live "Files changed" page of every PR behind `test/fixtures/real-prs/`, checking that the summary bar and badges match what the engine gives for each fixture. It needs network access to github.com, so it is separate from `npm test`.
 
 ```bash
 npm install
-```
-
-```bash
 npx playwright install chromium
-```
-
-```bash
 npm run test:e2e
 ```
 
-By default it runs signed out, which means GitHub serves the **classic**
-UI. The new React UI is only served to signed-in sessions. To run the
-suite against that UI, sign in once in the window this opens (you type
-your own credentials; the session cookies are saved to the gitignored
-`e2e/.auth/`):
+Signed out, GitHub serves the **classic** UI; the React UI is only served to signed-in sessions. To run against it, sign in once in the window this opens (you type your own credentials; cookies are saved to the gitignored `e2e/.auth/`):
 
 ```bash
 npm run test:e2e:login
 ```
 
-`HEADED=1 npm run test:e2e` shows the browser. Every test is annotated
-with the UI it actually saw.
+## How well do the heuristics work?
+
+They are calibrated and regression-tested on **42 real merged PRs** from open-source repos (no toy examples), described in [test/fixtures/real-prs](test/fixtures/real-prs/README.md). [`metadata.json`](test/fixtures/real-prs/metadata.json) records which hunk is the actual fix in each PR, which makes this measurable. [`test/fix-recall.test.js`](test/fix-recall.test.js) is a ratchet on it:
+
+| | Fix hunks flagged | Non-fix hunks flagged **high** |
+|---|---|---|
+| Before this change | 55 / 84 | 12 |
+| Now | **68 / 84** | **6** |
+
+What moved the numbers, each found by reading real output hunk by hunk:
+
+- **Identifiers.** `\bpassword\b` never matched `verify_password` or `checkPassword`, because `_` counts as a word character. Missing-authorization and IDOR fixes were invisible. Now matched, in snake_case and camelCase.
+- **Race fixes add locks.** Most fixes *add* synchronization, which the engine ignored. Now medium (adding a lock is usually right, but it changes what can interleave).
+- **Test files.** A security word in a test is a medium nudge, not a red flag. This took passkey-kit#4 (an auth-bypass fix) from 5 high-noise hunks to 0 while keeping its 3 real fix hunks.
+- **Quote style.** Prettier's `"x"` to `'x'` is formatting, unless the line interpolates.
+
+Earlier review passes, also on real PRs: `± 1` off-by-one fixes (mglet-base#226), CHANGELOG prose and version bumps burying a real fix (passkey-kit#4), and keyword lists that were too broad (`admin`, `token`, `auth*` flagged all of `django.contrib.admin`).
 
 ## Known Limitations / Future Work
 
-- **GitHub replaced the Files Changed DOM this extension targets,
-  mid-project** (confirmed 2026-09-23, after the original build was
-  verified against the old DOM on 2026-08-26) — GitHub now redirects
-  `/pull/<n>/files` to `/pull/<n>/changes` and renders it with a full
-  React/Primer grid instead of the old server-rendered table. Confirmed
-  live against two unrelated repos (a small fixture repo and
-  `psf/requests`), so it's a platform-wide rollout, not an
-  account-specific preview. It is, however, **signed-in only**: as of
-  2026-09-26, signed-out sessions still get the classic UI (`/changes`
-  302s back to `/files`), so both DOMs remain in use.
-  **v1.1 adapts to this**: `src/content.js`
-  now scans both DOM shapes unconditionally on every pass rather than
-  detecting one up front, so it keeps working regardless of which UI a
-  given session renders — including if GitHub reverts or further
-  A/B-tests this change. Verified live against the same SQL-injection
-  and signature-change fixture PRs used in the original calibration.
-  On 2026-09-26 the new UI's hunk extraction was checked byte-for-byte
-  against the fixture diffs on two 19–25-file PRs, including files
-  behind its "Load Diff" button. Still not verified: PRs with hundreds
-  of files, and the new UI's split view. See
-  [docs/github-diff-dom.md](docs/github-diff-dom.md) for the full DOM
-  capture and selector mapping.
-- **The summary bar over-counts low-risk hunks** (both UIs). GitHub adds
-  an "expand to end of file" row after a file's last hunk, and it uses
-  the same boundary cell as a real `@@` hunk header. `src/content.js`
-  counts it as an empty hunk and scores it low. The result is that the
-  "low" count and the "N hunks scanned" total are one too high per file
-  that doesn't end at EOF (e.g. 59 low instead of 47 on
-  django/django#16012). High/medium counts and badges are correct.
-  Caught by the E2E suite; see
-  [docs/github-diff-dom.md](docs/github-diff-dom.md).
-- **New UI: collapsing and re-expanding a file** throws away and
-  rebuilds its diff table, dropping that file's badges. From reading the
-  code (not verified live), the next scan should re-mark it, but the
-  re-marked hunks can reuse another hunk's `driskh-hunk-N` id, so a
-  "Jump to high risk" chip may scroll to the wrong hunk.
-- **Regex/string heuristics, not real parsing.** v1 deliberately avoids
-  an AST parser to stay lightweight and language-agnostic, but that
-  means it can be fooled by things a real parser wouldn't miss: a
-  `try`/`catch` keyword inside a string or comment, a variable swapped
-  for a different variable of the same "shape" (the rename detector
-  requires *consistent* substitution to guard against this, but it's
-  still not real semantic analysis), or a function-signature check that
-  only recognizes `def`/`function`/`fn`/`func`-style declarations and
-  misses bare class methods or arrow functions. **A natural v2 upgrade
-  is swapping the regex heuristics for real AST-based diffing** (e.g.
-  via `tree-sitter`) for the languages we care most about, falling back
-  to the current heuristics for anything unsupported.
-- **The summary bar can cosmetically overlap a file's own sticky
-  header** for the height of the bar, since both compete for the same
-  scroll position and GitHub's own sticky offset isn't (and shouldn't
-  be) patched via injected CSS. Doesn't break anything functionally,
-  just a few pixels of visual overlap during scroll on multi-file PRs.
-- **Expanding context lines within an already-scanned hunk** (GitHub's
-  "Expand Up"/"Expand Down" links) doesn't extend that hunk's colored
-  edge to the newly-revealed rows, because the per-file hunk-count cache
-  (see above) only re-walks a file when its hunk *count* changes, and
-  expanding context usually doesn't change that count. Purely cosmetic —
-  the added/removed lines driving the risk score haven't changed, so the
-  classification itself is still correct — but it can leave a small gap
-  in the border. Only merging two adjacent hunks into one (which *does*
-  change the count) triggers a re-render of the full hunk today.
-- The risk-raising keyword lists (SQL, security) are deliberately
-  narrow after calibration surfaced real false positives (see above) —
-  which means they're also conservative and will miss variations not in
-  the list (e.g. `pwd` instead of `password`, raw SQL built with
-  `String.format` instead of `+` concatenation). Widening them safely
-  needs more real-PR calibration, not just adding more words.
-- **Concurrency detection is shallow.** It only sees synchronization
-  being *removed* and one check-then-act shape; it can't see a race
-  that comes from moving code across an existing lock boundary, from
-  shared state without any primitive nearby, or from ordering between
-  hunks. A race *fix* that adds a lock isn't flagged at all. (See
-  [What a 17-fixture human review actually found](#what-a-17-fixture-human-review-actually-found).)
-- **File classification is path-only.** Linguist also detects generated
-  files by content (e.g. a "Code generated … DO NOT EDIT" header), but a
-  hunk only carries a few lines from the middle of a file, so a
-  generated file at an unconventional path is still scanned as code.
-  Documentation detection is also by path. A code sample removed from a
-  `.md` file still goes through the structural detectors (by design),
-  but a security term inside it no longer raises a flag.
-- **Test files still get the production-code detectors too.** Weakened
-  and removed assertions are now flagged, but the security-keyword
-  detector also still fires on tests, so on a security fix the tests
-  exercising it are flagged high (5 of the 8 highs on
-  stellar/passkey-kit#4). Test files are recognized by path only
-  (`tests/`, `*_test.go`, `test_*.py`, `tests.py`, `*.spec.ts`,
-  `*Test.java`, …).
-- Split (side-by-side) diff view was checked live and works: GitHub
-  reuses the same `td.blob-code-hunk`/`blob-code-addition`/
-  `blob-code-deletion` classes there (a "changed" line just puts the old
-  and new versions in the same `<tr>` via `data-split-side="left"`/`"right"`
-  instead of two separate rows), so the same selectors and hunk grouping
-  apply unchanged — verified by running the real extraction against
-  `?diff=split` on the SQL-injection fixture PR and getting the identical
-  4-hunk, 1-high classification as unified view. See
-  [docs/github-diff-dom.md](docs/github-diff-dom.md) for the exact markup.
-- Binary files and renames-with-no-content-changes aren't handled
-  distinctly from a normal small diff (they typically produce zero
-  hunks, so they end up simply not scanned rather than explicitly
-  flagged as "nothing to review here").
-- No support yet for GitHub Enterprise custom domains — matches
-  `github.com` only.
-- The LLM explanation layer only supports Anthropic's API today — no
-  OpenAI/other-provider option, and the model id is hardcoded rather
-  than user-configurable.
-- The "Explain" flow was verified with a mocked background response, not
-  a real Anthropic API call — the actual request/response shape
-  (`data.content[0].text`) matches Anthropic's documented Messages API
-  but hasn't been exercised against the live endpoint.
+- **Heuristics, not parsing.** Regex and text matching can be fooled by a keyword in a string or comment. Swapping in a real AST (e.g. tree-sitter) is the natural v2.
+- **16 of 84 real-fix hunks are still missed.** Examples: a lookup moved *inside* an existing lock (nats-server#8647), a CSRF cookie-prefix rename, and some thread-pool races in C. Check-then-act is only caught in code that visibly runs concurrently.
+- **Narrow keyword lists on purpose.** Broader ones (`admin`, `token`, `auth*`) produced absurd false positives on real PRs. The cost is missing variants like `pwd`.
+- **Added locking is a medium nudge, not proof of a fix.** It fires on any hunk that adds a lock, including ordinary new concurrent code.
+- **GitHub changes its DOM.** It did mid-project: `/files` became `/changes` with a React rewrite. Both layouts are supported, with selectors documented in [docs/github-diff-dom.md](docs/github-diff-dom.md), but expect to re-check them occasionally.
+- **Not yet verified:** the React UI against the e2e suite (signed out, GitHub serves the classic UI, which is what has been run: 68/68 passing), so its lazy-loading on very large PRs is untested. Run `npm run test:e2e:login` once, then `npm run test:e2e`. "Explain" has also only been tested with a mocked reply, not the live API.
+- github.com only (no Enterprise domains). The sticky bar can overlap GitHub's own sticky headers slightly while scrolling.
 
-## Project structure
+## Project layout
 
 ```
-manifest.json                    Manifest V3 config ("storage" permission, background service worker, api.anthropic.com host permission)
-.claude/launch.json              Static-server config for opening test/perf/*.html with scripts enabled
-src/content.js                   Content script: page detection, hunk extraction, markers, summary bar, toggle, Explain button
-src/background.js                Service worker: makes the optional Anthropic API call (only file allowed to)
-src/risk-engine.js               Risk detection engine (DOM-free, unit-testable)
-docs/github-diff-dom.md          Notes on GitHub's diff DOM/selectors
-test/risk-engine.unit.test.js    Heuristic-by-heuristic unit tests
-test/risk-engine.real-diffs.test.js  Calibration/regression tests against real PRs
-test/fixtures/real-prs/          Raw diffs from 42 real merged PRs, used by the above; README lists them by bug category
-test/fixtures/real-prs/metadata.json  Per fixture: repo, PR, category, license, and which hunks carry the real fix
-test/fixtures-metadata.test.js   Checks metadata.json matches the diffs (every fixture listed, every fix hunk exists)
-scripts/fetch-fixtures.js        Collects new fixtures via the gh CLI: `search` for candidates, `fetch` a vetted manifest
-scripts/fixtures-manifest.json   The hand-vetted fixture list (with fix hunks) that `fetch` builds metadata.json from
-test/perf/synthetic-large-diff.html  Manual perf harness (150-file synthetic diff; needs a real DOM, not part of `npm test`)
-test/dom/pull/999/files/self-trigger-regression.html  Loads the real content.js/risk-engine.js and asserts the observer doesn't retrigger itself
-playwright.config.js             E2E config (npm run test:e2e); kept out of test/ so npm test stays fast and browser-free
-e2e/extension-fixture.js         Launches Chromium with this folder loaded via --load-extension
-e2e/real-prs.js                  Live PR for each fixture + expected high/medium/low counts from the risk engine
-e2e/real-prs.spec.js             E2E tests against those live PR pages
-e2e/save-github-session.js       npm run test:e2e:login — saves a signed-in session so E2E covers the new React UI
-.github/workflows/test.yml       CI: npm test on every push and PR
+manifest.json            Manifest V3 config
+src/risk-engine.js       The heuristics: pure, DOM-free, unit-tested
+src/content.js           Finds hunks (classic + React DOM), draws badges and the summary bar
+src/background.js        Optional Anthropic call (CSP-safe) + toolbar toggle
+icons/                   Generated by scripts/make-icons.js
+docs/                    github-diff-dom.md (selector notes), img/ (screenshots)
+test/                    Unit tests, 42 real-PR fixtures + metadata, DOM fixture pages, perf harness
+e2e/                     Playwright: the real extension on live GitHub PRs
+scripts/                 fetch-fixtures.js (collector), make-icons.js
 ```
