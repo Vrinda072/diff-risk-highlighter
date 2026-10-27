@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1068 380" width="1068" height="380" role="img" aria-labelledby="t d">
+  <title id="t">Diff Risk Highlighter architecture</title>
+  <desc id="d">A GitHub pull request page feeds content.js, which sends each hunk to risk-engine.js, which returns a level and reason that content.js draws as badges, edge stripes and a summary bar. Clicking Explain optionally sends the hunk through background.js to the Anthropic API.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#8b949e"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#bc8cff"/></marker>
+    <linearGradient id="risk" x1="0" x2="1"><stop offset="0" stop-color="#f85149"/><stop offset="1" stop-color="#d29922"/></linearGradient>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#010409" flood-opacity=".6"/></filter>
+    <style>
+      text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .h { font-size: 16px; font-weight: 700; fill: #f0f6fc; }
+      .m { font-size: 13px; fill: #c9d1d9; }
+      .s { font-size: 11.5px; fill: #8b949e; }
+      .l { font-size: 11px; fill: #8b949e; font-weight: 600; letter-spacing: .02em; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .card { fill: #161b22; stroke: #30363d; stroke-width: 1.2; }
+    </style>
+  </defs>
+
+  <rect x=".6" y=".6" width="1066.8" height="378.8" rx="16" fill="#0d1117" stroke="#30363d"/>
+  <text x="32" y="38" class="h" style="font-size:13px;letter-spacing:.12em;fill:#8b949e">HOW IT WORKS</text>
+
+  <!-- row 1 -->
+  <g filter="url(#sh)">
+    <rect class="card" x="30" y="66" width="180" height="128" rx="12"/>
+    <rect x="30" y="66" width="180" height="5" rx="2.5" fill="#8b949e"/>
+    <rect class="card" x="306" y="66" width="180" height="128" rx="12"/>
+    <rect x="306" y="66" width="180" height="5" rx="2.5" fill="#58a6ff"/>
+    <rect class="card" x="582" y="66" width="180" height="128" rx="12"/>
+    <rect x="582" y="66" width="180" height="5" rx="2.5" fill="url(#risk)"/>
+    <rect class="card" x="858" y="66" width="180" height="128" rx="12"/>
+    <rect x="858" y="66" width="180" height="5" rx="2.5" fill="#3fb950"/>
+  </g>
+
+  <text x="48" y="106" class="h">GitHub PR</text>
+  <text x="48" y="128" class="m">Files changed tab</text>
+  <text x="48" y="154" class="s">classic table and</text>
+  <text x="48" y="170" class="s">React grid layouts</text>
+
+  <text x="324" y="106" class="h mono" style="font-size:15px">content.js</text>
+  <text x="324" y="128" class="m">finds every hunk,</text>
+  <text x="324" y="146" class="m">reads its lines</text>
+  <text x="324" y="172" class="s">debounced observer</text>
+
+  <text x="600" y="106" class="h mono" style="font-size:15px">risk-engine.js</text>
+  <text x="600" y="128" class="m">assessHunk()</text>
+  <text x="600" y="146" class="m">level + reason</text>
+  <text x="600" y="172" class="s">pure, DOM-free, tested</text>
+
+  <text x="876" y="106" class="h">On the page</text>
+  <text x="876" y="128" class="m">HIGH / MEDIUM badges</text>
+  <text x="876" y="146" class="m">edge stripes, summary</text>
+  <text x="876" y="172" class="s">bar, on/off switch</text>
+
+  <!-- row 1 arrows -->
+  <path d="M212 130 H302" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <path d="M488 130 H578" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <path d="M764 130 H854" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <text x="257" y="118" class="l" text-anchor="middle">DOM</text>
+  <text x="257" y="150" class="l" text-anchor="middle">changes</text>
+  <text x="533" y="118" class="l" text-anchor="middle">added +</text>
+  <text x="533" y="150" class="l" text-anchor="middle">removed lines</text>
+  <text x="809" y="118" class="l" text-anchor="middle">level +</text>
+  <text x="809" y="150" class="l" text-anchor="middle">reason</text>
+
+  <!-- optional branch -->
+  <path d="M948 196 V262" stroke="#bc8cff" stroke-width="2" stroke-dasharray="6 5" fill="none" marker-end="url(#b)"/>
+  <text x="962" y="236" class="l" style="fill:#bc8cff">click “Explain”</text>
+
+  <g filter="url(#sh)">
+    <rect class="card" x="858" y="270" width="180" height="76" rx="12" stroke-dasharray="6 4" style="stroke:#6e40c9"/>
+    <rect class="card" x="582" y="270" width="180" height="76" rx="12" stroke-dasharray="6 4" style="stroke:#6e40c9"/>
+  </g>
+  <text x="876" y="302" class="h mono" style="font-size:15px">background.js</text>
+  <text x="876" y="324" class="s">service worker, CSP-safe</text>
+  <text x="600" y="302" class="h">Anthropic API</text>
+  <text x="600" y="324" class="s">one-sentence explanation</text>
+  <path d="M856 308 H766" stroke="#bc8cff" stroke-width="2" stroke-dasharray="6 5" fill="none" marker-end="url(#b)"/>
+
+  <!-- legend -->
+  <line x1="32" y1="318" x2="62" y2="318" stroke="#8b949e" stroke-width="2"/>
+  <text x="70" y="322" class="s">always on, runs locally</text>
+  <line x1="32" y1="342" x2="62" y2="342" stroke="#bc8cff" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="70" y="346" class="s">optional: only when you click Explain, with your own API key</text>
+</svg>
