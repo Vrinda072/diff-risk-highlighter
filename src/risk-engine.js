@@ -156,11 +156,18 @@
   // logic didn't change just because the word is scary.)
   // ---------------------------------------------------------------------
 
+  // Interpolation/escape characters make quote style semantic (`"$x"` vs
+  // `'$x'` differ in shell, Ruby, PHP, Perl), so quotes are only treated as
+  // cosmetic when none are present.
+  const QUOTE_SEMANTIC_RE = /[$`\\]|#\{/;
+
   function normalizeForFormatting(lines) {
-    return lines
-      .join('\n')
+    const joined = lines.join('\n');
+    let out = joined
       .replace(/\s+/g, '')
       .replace(/,+([)\]}])/g, '$1'); // trailing commas are cosmetic (see passcore#150 fixture)
+    if (!QUOTE_SEMANTIC_RE.test(joined)) out = out.replace(/"/g, "'"); // Prettier quote style
+    return out;
   }
 
   function detectFormattingOnly(removedLines, addedLines) {
@@ -179,6 +186,24 @@
 
   function detectGeneratedFile(filePath) {
     return GENERATED_FILE_RE.test(filePath);
+  }
+
+  // Prose can't introduce a vulnerability or a logic bug. Without this, a
+  // CHANGELOG that merely *describes* an authorization fix scored "high" on a
+  // real auth-bypass PR (passkey-kit#4), burying the one hunk that mattered
+  // under 14 that didn't.
+  const PROSE_FILE_RE =
+    /\.(md|mdx|markdown|txt|rst|adoc)$|(^|\/)(CHANGELOG|CHANGES|HISTORY|NEWS|LICENSE|NOTICE|AUTHORS|CONTRIBUTING)(\.[A-Za-z]+)?$/i;
+
+  function detectProseFile(filePath) {
+    return PROSE_FILE_RE.test(filePath);
+  }
+
+  const TEST_FILE_RE =
+    /(^|\/)(tests?|__tests__|spec|specs)\/|\.(test|spec)\.\w+$|_test\.\w+$|(^|\/)test_[^/]+$/i;
+
+  function isTestFile(filePath) {
+    return TEST_FILE_RE.test(filePath);
   }
 
   const COMMENT_LINE_RE = /^\s*(#|\/\/|\/\*|\*|--|;|"""|''')/;
@@ -247,6 +272,27 @@
   // that differs in exactly one token, and that token is a comparison /
   // range operator or an off-by-one-shaped integer literal change.
   // Modeled directly on alacritty#9027 (`..` -> `..=` in a range bound).
+  //
+  // Two shapes are caught:
+  //   1. exactly one token swapped (`<` -> `<=`, `2` -> `3`)
+  //   2. a "+ 1" / "- 1" term added or removed (`idx = i*kk` -> `idx = i*kk - 1`,
+  //      `range(n)` -> `range(n + 1)`) — the other classic off-by-one fix,
+  //      missed by (1) because it adds tokens instead of swapping one
+  //      (mglet-base#226).
+  const VERSION_LIKE_RE = /\bv?\d+\.\d+\.\d+|version/i;
+
+  function findUnitTermSplice(shortTokens, longTokens) {
+    if (longTokens.length !== shortTokens.length + 2) return null;
+    for (let at = 0; at + 1 < longTokens.length; at++) {
+      const op = longTokens[at];
+      const num = longTokens[at + 1];
+      if ((op.value !== '+' && op.value !== '-') || num.value !== '1') continue;
+      const rest = longTokens.slice(0, at).concat(longTokens.slice(at + 2));
+      if (rest.every((t, i) => t.value === shortTokens[i].value)) return op.value;
+    }
+    return null;
+  }
+
   function detectBoundaryChange(removedLines, addedLines) {
     const pairs = pairLines(removedLines, addedLines, BOUNDARY_PAIR_SIMILARITY);
     for (const { removed, added } of pairs) {
@@ -254,6 +300,16 @@
 
       const rTokens = tokenize(removed);
       const aTokens = tokenize(added);
+
+      const addedOp = findUnitTermSplice(rTokens, aTokens);
+      if (addedOp) {
+        return `An index/bound was adjusted by 1 (added "${addedOp} 1") on an otherwise unchanged line — classic off-by-one shape.`;
+      }
+      const removedOp = findUnitTermSplice(aTokens, rTokens);
+      if (removedOp) {
+        return `An index/bound was adjusted by 1 (removed "${removedOp} 1") on an otherwise unchanged line — classic off-by-one shape.`;
+      }
+
       if (rTokens.length !== aTokens.length) continue;
 
       const diffIndexes = [];
@@ -272,7 +328,10 @@
         }
       }
 
-      if (rTokens[i].type === 'number' && aTokens[i].type === 'number') {
+      // A version bump ("0.16.2" -> "0.16.3") is token-for-token identical
+      // to a loop bound shifting by one, but means nothing.
+      const looksLikeVersion = VERSION_LIKE_RE.test(removed) || VERSION_LIKE_RE.test(added);
+      if (!looksLikeVersion && rTokens[i].type === 'number' && aTokens[i].type === 'number') {
         if (Math.abs(parseInt(rVal, 10) - parseInt(aVal, 10)) === 1) {
           return `A numeric literal shifted by 1 ("${rVal}" → "${aVal}") on an otherwise unchanged line — classic off-by-one shape.`;
         }
@@ -367,12 +426,36 @@
   //     and unrelated state — too generic to be a useful signal alone.
   // So: no wildcards, no single common English words: only fairly
   // unambiguous security-specific terms/acronyms.
+  //
+  // Boundaries use letter-lookarounds instead of \b, because \b treats `_` as
+  // a word character: `\bpassword\b` silently missed `verify_password` and
+  // `user_password_hash` — i.e. most real identifiers. camelCase is split
+  // into words first (`checkPassword` -> `check Password`) for the same reason.
   const SECURITY_KEYWORDS_RE =
-    /\b(password|passwd|secret|jwt|oauth|csrf|xsrf|cors|ssrf|xss|authenticat(?:e|es|ed|ing|ion)|authoriz(?:e|es|ed|ing|ation)|unauthorized|encrypt(?:s|ed|ing|ion)?|decrypt(?:s|ed|ing|ion)?|crypto|superuser|privileged?|sanitiz(?:e|es|ed|ing|ation)|content-security-policy|x-content-type-options|set-cookie)\b/i;
+    /(?<![A-Za-z])(passwords?|passwd|secrets?|jwt|oauth|csrf|xsrf|cors|ssrf|xss|authenticat(?:e|es|ed|ing|ion)|authoriz(?:e|es|ed|ing|ation)|unauthorized|encrypt(?:s|ed|ing|ion)?|decrypt(?:s|ed|ing|ion)?|crypto(?:graph(?:y|ic))?|superuser|privileged?|sanitiz(?:e|es|ed|ing|ation)|content-security-policy|x-content-type-options|set-cookie)(?![A-Za-z])/i;
 
   function detectSecuritySensitive(removedLines, addedLines) {
-    const joined = [...removedLines, ...addedLines].join('\n');
+    const joined = [...removedLines, ...addedLines].join('\n').replace(/([a-z0-9])([A-Z])/g, '$1 $2');
     return SECURITY_KEYWORDS_RE.test(joined);
+  }
+
+  // Concurrency bugs have no single syntactic shape, so this only catches
+  // the two things a race-condition fix almost always touches: locking /
+  // atomicity primitives (high — changing these changes what can interleave),
+  // and newly added retry/backoff logic (medium — usually papering over an
+  // ordering problem, e.g. squarelet#777's `self.retry(...)` for a webhook
+  // that can arrive before the row it needs exists).
+  const LOCK_PRIMITIVE_RE =
+    /\b(mutex|semaphore|synchronized|select_for_update|with_for_update|rwlock|atomic\w*|compare_and_swap|volatile|deadlock|race condition|threading|multiprocessing)\b|\.(acquire|release|lock|unlock)\(|FOR UPDATE|asyncio\.(Lock|Semaphore)/i;
+  const RETRY_RE = /\b(retry|retries|backoff|countdown)\b/i;
+
+  function detectLockPrimitive(removedLines, addedLines) {
+    return [...removedLines, ...addedLines].some((l) => LOCK_PRIMITIVE_RE.test(l));
+  }
+
+  function detectAddedRetry(removedLines, addedLines) {
+    return countMatches(addedLines, new RegExp(RETRY_RE.source, 'gi')) >
+      countMatches(removedLines, new RegExp(RETRY_RE.source, 'gi'));
   }
 
   const FUNCTION_DECL_RE =
@@ -418,6 +501,9 @@
     if (detectGeneratedFile(filePath)) {
       return { level: LEVELS.LOW, reason: 'Lockfile/generated file — not worth a line-by-line review.' };
     }
+    if (detectProseFile(filePath)) {
+      return { level: LEVELS.LOW, reason: 'Documentation/prose file — no code behavior affected.' };
+    }
     if (detectFormattingOnly(removedLines, addedLines)) {
       return { level: LEVELS.LOW, reason: 'Formatting-only change — no code semantics affected.' };
     }
@@ -455,10 +541,28 @@
     }
 
     if (detectSecuritySensitive(removedLines, addedLines)) {
+      // A test that merely mentions "password" isn't the risky part of a PR;
+      // a *weakened* test can be, so it still gets a look — just not a red flag.
+      const inTest = isTestFile(filePath);
+      candidates.push({
+        severity: inTest ? LEVELS.MEDIUM : LEVELS.HIGH,
+        reason: inTest
+          ? 'A test touching security-related behavior — check no assertion was weakened or removed.'
+          : 'Touches security-sensitive code (auth/session/crypto/headers) — review carefully even if the change looks small.',
+      });
+    }
+
+    if (detectLockPrimitive(removedLines, addedLines)) {
       candidates.push({
         severity: LEVELS.HIGH,
         reason:
-          'Touches security-sensitive code (auth/session/crypto/headers) — review carefully even if the change looks small.',
+          'Touches locking/atomicity primitives — check what can now interleave (race conditions, deadlocks).',
+      });
+    } else if (detectAddedRetry(removedLines, addedLines)) {
+      candidates.push({
+        severity: LEVELS.MEDIUM,
+        reason:
+          'Adds retry/backoff logic — often masks an ordering or race problem; check the operation is safe to repeat.',
       });
     }
 
@@ -503,6 +607,10 @@
       lineSimilarity,
       pairLines,
       detectGeneratedFile,
+      detectProseFile,
+      isTestFile,
+      detectLockPrimitive,
+      detectAddedRetry,
       detectFormattingOnly,
       detectCommentOnly,
       detectPureRename,

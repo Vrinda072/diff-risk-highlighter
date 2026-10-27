@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Diff Risk Highlighter — new-UI fixture</title>
+<!--
+  A mock of GitHub's React "Files changed" page. The diff markup below is
+  generated to match the real outerHTML captured live from psf/requests#4052
+  (see docs/github-diff-dom.md): one <tr class="diff-line-row"> per line,
+  td.diff-hunk-cell boundary rows, code.diff-text.addition/.deletion cells,
+  table[aria-label="Diff for: <path>"], [data-testid="progressive-diffs-list"].
+
+  It loads the REAL src/risk-engine.js + src/content.js (not copies). It lives
+  at .../pull/999/changes/ so the URL satisfies content.js's own page gate.
+
+  Doubles as: (1) a DOM regression test (open it; it prints PASS/FAIL), and
+  (2) the page the README screenshots are rendered from.
+    ?theme=dark   dark palette        ?shot=1   hide the test panel
+-->
+<style>
+  :root {
+    color-scheme: light;
+    --bgColor-default: #ffffff; --bgColor-muted: #f6f8fa; --bgColor-neutral-muted: #eaeef2;
+    --fgColor-default: #1f2328; --fgColor-muted: #59636e; --fgColor-onEmphasis: #fff;
+    --borderColor-default: #d1d9e0;
+    --fgColor-danger: #d1242f; --bgColor-danger-muted: #ffebe9; --bgColor-danger-emphasis: #cf222e;
+    --fgColor-attention: #9a6700; --bgColor-attention-muted: #fff8c5; --bgColor-attention-emphasis: #bf8700;
+    --bgColor-success-emphasis: #1f883d;
+    --add-bg: #dafbe1; --add-num: #ccffd8; --del-bg: #ffebe9; --del-num: #ffd7d5; --hunk-bg: #ddf4ff;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bgColor-default: #0d1117; --bgColor-muted: #151b23; --bgColor-neutral-muted: #656c7633;
+    --fgColor-default: #f0f6fc; --fgColor-muted: #9198a1; --fgColor-onEmphasis: #fff;
+    --borderColor-default: #3d444d;
+    --fgColor-danger: #ff7b72; --bgColor-danger-muted: #f851491a; --bgColor-danger-emphasis: #da3633;
+    --fgColor-attention: #d29922; --bgColor-attention-muted: #bb800926; --bgColor-attention-emphasis: #9e6a03;
+    --bgColor-success-emphasis: #238636;
+    --add-bg: #2ea04326; --add-num: #3fb9504d; --del-bg: #f851491a; --del-num: #f8514966; --hunk-bg: #388bfd1a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bgColor-default); color: var(--fgColor-default);
+    font: 14px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  .page { max-width: 1012px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; font-weight: 400; margin: 0 0 4px; }
+  h1 small { color: var(--fgColor-muted); }
+  .meta { color: var(--fgColor-muted); margin-bottom: 16px; }
+  #test-panel { white-space: pre; font: 12px/1.5 ui-monospace, monospace; padding: 12px; border-radius: 6px; margin-bottom: 16px; }
+  #test-panel.pass { background: #dafbe1; color: #116329; }
+  #test-panel.fail { background: #ffebe9; color: #82071e; }
+  .shot #test-panel { display: none; }
+
+  .diff-entry { border: 1px solid var(--borderColor-default); border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
+  .file-hdr { padding: 7px 12px; background: var(--bgColor-muted); border-bottom: 1px solid var(--borderColor-default);
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; display: flex; gap: 8px; align-items: center; }
+  .file-hdr b { font-weight: 600; } .file-hdr .stat { margin-left: auto; color: var(--fgColor-muted); }
+  table.diff { width: 100%; border-collapse: collapse; table-layout: fixed; font: 12px/20px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  td { padding: 0; vertical-align: top; }
+  td.num { text-align: right; padding: 0 10px; color: var(--fgColor-muted); user-select: none; }
+  td.num.add { background: var(--add-num); } td.num.del { background: var(--del-num); }
+  td.diff-text-cell { padding-right: 24px; }
+  td.diff-text-cell.add { background: var(--add-bg); } td.diff-text-cell.del { background: var(--del-bg); }
+  td.diff-hunk-cell { background: var(--hunk-bg); color: var(--fgColor-muted); }
+  .diff-text-cell.hunk { white-space: nowrap; }
+  .diff-hunk-cell .d-flex { display: flex; flex-direction: row; align-items: center; }
+  .diff-hunk-cell button.expand { width: 50px; height: 28px; border: 0; background: transparent; color: var(--fgColor-muted); cursor: pointer; }
+  table.diff code { font: inherit; display: block; white-space: pre-wrap; word-break: break-word; }
+  .meta code { font: 12px ui-monospace, monospace; background: var(--bgColor-neutral-muted); padding: 1px 6px; border-radius: 6px; }
+  .diff-text-marker { display: inline-block; width: 16px; text-align: center; color: var(--fgColor-muted); }
+  .diff-text-cell code.diff-text:not(.addition):not(.deletion) .diff-text-inner { padding-left: 16px; }
+  .diff-text-inner { display: inline; }
+  .diff-text-cell.hunk, code.diff-text-cell.hunk { display: inline-block; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Fix SQL injection, off-by-one and auth checks <small>#999</small></h1>
+  <div class="meta">octocat wants to merge 6 commits into <code>main</code> — mock of GitHub's React Files&nbsp;changed tab</div>
+  <div id="test-panel">running…</div>
+
+  <!-- the real UI has no #files and no .pr-toolbar; only this container -->
+  <div id="diffs-parent">
+    <div data-testid="progressive-diffs-list" id="diffs"></div>
+  </div>
+</div>
+
+<script>
+  const params = new URLSearchParams(location.search);
+  if (params.get('theme') === 'dark') document.documentElement.dataset.theme = 'dark';
+  if (params.get('shot')) document.body.classList.add('shot');
+
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // --- markup generators, mirroring the live-captured structure -------------
+  const boundary = (hdr) => `<tr class="diff-line-row"><td class="diff-hunk-cell focusable-grid-cell left-side" colspan="4" role="gridcell"><div class="d-flex flex-row"><button class="expand" aria-label="Expand file up" tabindex="-1">⌃</button><code class="diff-text-cell hunk"><div class="diff-text-inner color-fg-muted">${esc(hdr)}</div></code></div></td></tr>`;
+  const ctx = (o, n, t) => `<tr class="diff-line-row"><td class="num" data-diff-side="left">${o}</td><td class="num" data-diff-side="right">${n}</td><td class="diff-text-cell" data-diff-side="right"><code class="diff-text syntax-highlighted-line"><div class="diff-text-inner">${esc(t)}</div></code></td></tr>`;
+  const del = (o, t) => `<tr class="diff-line-row"><td class="num del" data-diff-side="left">${o}</td><td class="num del empty-diff-line"></td><td class="diff-text-cell del" data-diff-side="left"><code class="diff-text syntax-highlighted-line deletion"><span class="diff-text-marker">-</span><div class="diff-text-inner">${esc(t)}</div></code></td></tr>`;
+  const add = (n, t) => `<tr class="diff-line-row"><td class="num add empty-diff-line"></td><td class="num add" data-diff-side="right">${n}</td><td class="diff-text-cell add" data-diff-side="right"><code class="diff-text syntax-highlighted-line addition"><span class="diff-text-marker">+</span><div class="diff-text-inner">${esc(t)}</div></code></td></tr>`;
+
+  const file = (path, stat, rows) => `
+    <div class="diff-entry" role="region">
+      <div class="file-hdr"><b>${esc(path)}</b><span class="stat">${stat}</span></div>
+      <table class="diff" aria-label="Diff for: ${esc(path)}" role="grid"><colgroup><col style="width:52px"><col style="width:52px"><col><col style="width:0"></colgroup><tbody>${rows}</tbody></table>
+    </div>`;
+
+  document.getElementById('diffs').innerHTML = [
+    file('vip-core/src/main/java/dao/UsersGroupsData.java', '+4 −4',
+      boundary('@@ -118,7 +118,7 @@ public class UsersGroupsData {') +
+      ctx(118, 118, '    public List<User> findByGroup(String groupName) {') +
+      del(119, '        String query = "SELECT * FROM users WHERE group_name = \'" + groupName + "\'";') +
+      add(119, '        String query = "SELECT * FROM users WHERE group_name = ?";') +
+      ctx(120, 120, '        return jdbc.query(query, mapper);') +
+      ctx(121, 121, '    }') +
+      boundary('@@ -240,3 +240,3 @@ public class UsersGroupsData {') +
+      ctx(240, 240, '    // helper') +
+      del(241, '    private static final int PAGE = 20;') +
+      add(241, '    private static final int PAGE_SIZE = 20;') +
+      ctx(242, 242, '}') +
+      boundary('@@ -250,0 +250,0 @@ trailing expand-down row, no changes')),
+
+    file('src/core/fieldhelper_mod.F90', '+1 −1',
+      boundary('@@ -71,7 +71,7 @@ SUBROUTINE set_field_arr_realk_impl(arr, val)') +
+      ctx(71, 71, '      DO i = 1, ii') +
+      del(72, '        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj') +
+      add(72, '        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj - 1') +
+      ctx(73, 73, '        arr(idx) = val')),
+
+    file('requests/utils.py', '+1 −1',
+      boundary('@@ -684,7 +684,7 @@ def should_bypass_proxies(url, no_proxy):') +
+      ctx(684, 684, '    return False') +
+      ctx(685, 685, '') +
+      del(687, 'def get_environ_proxies(url, no_proxy):') +
+      add(687, 'def get_environ_proxies(url, no_proxy=None):') +
+      ctx(688, 688, '    """Return a dict of environment proxies."""') +
+      boundary('@@ -700,0 +700,0 @@ trailing row')),
+
+    file('tests/test_auth.py', '+2 −0',
+      boundary('@@ -30,6 +30,8 @@ class TestAuth:') +
+      ctx(30, 30, '    def test_login(self):') +
+      add(31, '        assert verify_password(user, "wrong") is False') +
+      add(32, '        assert jwt_is_valid(token)') +
+      ctx(33, 33, '')),
+
+    file('CHANGELOG.md', '+1 −0',
+      boundary('@@ -1,3 +1,4 @@') +
+      add(1, '- Fix authorization bypass: password checks now run before the jwt is trusted') +
+      ctx(2, 3, '- Earlier entries')),
+
+    file('package.json', '+1 −1',
+      boundary('@@ -2,5 +2,5 @@') +
+      ctx(2, 2, '  "name": "passkey-kit",') +
+      del(3, '  "version": "0.16.2",') +
+      add(3, '  "version": "0.16.3",') +
+      ctx(4, 4, '  "private": true')),
+  ].join('');
+</script>
+
+<script>
+  // Count observer callbacks from BEFORE content.js attaches (self-trigger guard).
+  window.__callbackCount = 0;
+  const OrigMO = window.MutationObserver;
+  window.MutationObserver = class extends OrigMO {
+    constructor(cb) { super((...a) => { window.__callbackCount++; cb(...a); }); }
+  };
+  // Plain pages have a native window.chrome without runtime/storage; give the
+  // content script the minimal extension API surface it expects.
+  window.chrome = window.chrome || {};
+  chrome.storage = { local: { get: (d, cb) => cb({ ...d }), set: (o, cb) => cb && cb() }, onChanged: { addListener(fn) { window.__onChanged = fn; } } };
+  chrome.runtime = { sendMessage: (m, cb) => cb({ explanation: 'The query concatenates groupName into SQL, so a crafted name can alter the statement.' }), lastError: null };
+</script>
+<script src="/src/risk-engine.js"></script>
+<script src="/src/content.js"></script>
+
+<script>
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const poke = () => document.body.appendChild(document.createElement('span')).remove();
+
+  (async () => {
+    await sleep(900);
+    const checks = [];
+    const check = (name, ok, detail = '') => checks.push({ name, ok: !!ok, detail });
+
+    const levelsByFile = () => {
+      const m = {};
+      document.querySelectorAll('tr[data-driskh-level]').forEach((r) => {
+        (m[r.dataset.driskhFile] = m[r.dataset.driskhFile] || []).push(r.dataset.driskhLevel);
+      });
+      return m;
+    };
+    const levels = levelsByFile();
+    check('SQL concat hunk is high', levels['vip-core/src/main/java/dao/UsersGroupsData.java']?.[0] === 'high', JSON.stringify(levels['vip-core/src/main/java/dao/UsersGroupsData.java']));
+    check('rename-ish PAGE -> PAGE_SIZE hunk is not high', levels['vip-core/src/main/java/dao/UsersGroupsData.java']?.[1] !== 'high');
+    check('appended "- 1" off-by-one is high', levels['src/core/fieldhelper_mod.F90']?.[0] === 'high');
+    check('signature change is medium', levels['requests/utils.py']?.[0] === 'medium');
+    check('trailing empty hunk is NOT counted (utils.py has exactly 1 scanned hunk)', levels['requests/utils.py']?.length === 1, JSON.stringify(levels['requests/utils.py']));
+    check('security keyword in a test file is medium', levels['tests/test_auth.py']?.[0] === 'medium');
+    check('CHANGELOG.md prose is low', levels['CHANGELOG.md']?.[0] === 'low');
+    check('semver bump in package.json is low', levels['package.json']?.[0] === 'low');
+
+    const total = document.querySelectorAll('tr[data-driskh-level]').length;
+    const bar = () => document.getElementById('driskh-summary-bar');
+    const pill = (l) => Number(bar()?.querySelector(`.driskh-pill--${l} b`)?.textContent);
+    check('summary bar exists, inserted before the diffs list', bar() && bar().nextElementSibling?.dataset.testid === 'progressive-diffs-list');
+    check('summary counts add up to hunks scanned', pill('high') + pill('medium') + pill('low') === total && total === 7, `${pill('high')}/${pill('medium')}/${pill('low')} of ${total}`);
+    check('risk meter rendered', bar()?.querySelectorAll('.driskh-meter-seg').length >= 2);
+    check('jump chips only for high hunks', bar()?.querySelectorAll('.driskh-jump-chip').length === pill('high'));
+    const ids = [...document.querySelectorAll('tr[id^="driskh-hunk-"]')].map((r) => r.id);
+    check('hunk ids are unique', new Set(ids).size === ids.length && ids.length > 0);
+    check('badge is inside the hunk header flex row', document.querySelector('.driskh-badge')?.parentElement.classList.contains('d-flex'));
+    check('Explain button only on high hunks', document.querySelectorAll('.driskh-explain-btn').length === pill('high'));
+
+    // Explain flow (mocked background reply)
+    document.querySelector('.driskh-explain-btn').click();
+    await sleep(50);
+    check('Explain click renders the explanation', /concatenates groupName/.test(document.querySelector('.driskh-explanation')?.textContent || ''));
+
+    // Toggle off/on with REAL clicks, and let a rescan run in between: the old
+    // bar re-rendered on toggle, replacing the checkbox and dropping focus.
+    const box = bar().querySelector('.driskh-toggle-input');
+    box.focus(); box.click();
+    poke(); await sleep(400);
+    const hidden = getComputedStyle(document.querySelector('.driskh-badge')).display === 'none';
+    const keptFocus = document.activeElement === box && box.isConnected;
+    box.click();
+    poke(); await sleep(400);
+    const shown = getComputedStyle(document.querySelector('.driskh-badge')).display !== 'none';
+    check('toggle hides then restores badges', hidden && shown, `hidden=${hidden} shown=${shown}`);
+    check('REGRESSION: switch keeps keyboard focus across a rescan', keptFocus);
+
+    // Toolbar-button path: background flips storage; content.js hears onChanged.
+    window.__onChanged({ driskhEnabled: { newValue: false } }, 'local');
+    await sleep(60);
+    const syncedOff = document.documentElement.classList.contains('driskh-disabled') && bar().querySelector('.driskh-toggle-input').checked === false;
+    window.__onChanged({ driskhEnabled: { newValue: true } }, 'local');
+    await sleep(60);
+    const syncedOn = !document.documentElement.classList.contains('driskh-disabled') && bar().querySelector('.driskh-toggle-input').checked === true;
+    check('toolbar-button toggle (via storage) keeps the switch in sync', syncedOff && syncedOn);
+
+    // BUG GUARD: React remounting the page throws away our bar. The old
+    // closure-level HTML cache then rendered an EMPTY replacement bar.
+    bar().remove();
+    poke();
+    await sleep(400);
+    check('REGRESSION: bar re-created after a remount is NOT empty', bar() && bar().querySelectorAll('.driskh-pill').length === 3);
+
+    // BUG GUARD: leaving the Files tab must remove the bar; coming back restores it.
+    const filesUrl = location.href;
+    history.pushState(null, '', '/test/dom/pull/999/commits/x');
+    poke(); await sleep(400);
+    const goneOnOtherTab = !bar();
+    history.pushState(null, '', filesUrl);
+    poke(); await sleep(400);
+    check('REGRESSION: bar removed on other tabs, restored with content on return', goneOnOtherTab && bar()?.querySelectorAll('.driskh-pill').length === 3);
+
+    // BUG GUARD: no self-retriggering
+    const a = window.__callbackCount; await sleep(1200); const b = window.__callbackCount;
+    check('no self-triggering mutation loop (idle growth = 0)', a === b, `${a} -> ${b}`);
+
+    const failed = checks.filter((c) => !c.ok);
+    const panel = document.getElementById('test-panel');
+    panel.className = failed.length ? 'fail' : 'pass';
+    panel.textContent = checks.map((c) => `${c.ok ? 'PASS' : 'FAIL'}  ${c.name}${c.ok || !c.detail ? '' : '  [' + c.detail + ']'}`).join('\n') +
+      `\n\n${failed.length ? 'FAIL' : 'PASS'} — ${checks.length - failed.length}/${checks.length} checks`;
+    window.__newUiTestResult = { pass: !failed.length, failed: failed.map((c) => c.name) };
+  })();
+</script>
+</body>
+</html>

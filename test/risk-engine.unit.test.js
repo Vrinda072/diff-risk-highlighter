@@ -311,3 +311,113 @@ describe('fallbacks', () => {
     assert.equal(result.level, 'low');
   });
 });
+
+describe('v1.1 fixes found by reviewing 17 real PRs', () => {
+  it('flags an off-by-one fixed by ADDING a "- 1" term (mglet-base#226)', () => {
+    const result = assessHunk({
+      filePath: 'src/core/fieldhelper_mod.F90',
+      removedLines: ['                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj'],
+      addedLines: ['                        idx = ip3 + k + (j-1)*kk + (i-1)*kk*jj - 1'],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /adjusted by 1/);
+  });
+
+  it('flags a bound adjusted mid-expression: range(n) -> range(n + 1)', () => {
+    const result = assessHunk({
+      filePath: 'loop.py',
+      removedLines: ['    for i in range(n):'],
+      addedLines: ['    for i in range(n + 1):'],
+    });
+    assert.equal(result.level, 'high');
+  });
+
+  it('flags a "+ 1" term being REMOVED too', () => {
+    const result = assessHunk({
+      filePath: 'loop.py',
+      removedLines: ['    end = start + length + 1'],
+      addedLines: ['    end = start + length'],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /removed/);
+  });
+
+  it('does not treat a semver bump as an off-by-one (passkey-kit#4 package.json)', () => {
+    const result = assessHunk({
+      filePath: 'package.json',
+      removedLines: ['  "version": "0.16.2",'],
+      addedLines: ['  "version": "0.16.3",'],
+    });
+    assert.equal(result.level, 'low');
+  });
+
+  it('treats prose files as low even when they discuss security (passkey-kit#4 CHANGELOG)', () => {
+    for (const filePath of ['CHANGELOG.md', 'docs/releasing.md', 'README.md', 'NOTES.txt']) {
+      const result = assessHunk({
+        filePath,
+        removedLines: [],
+        addedLines: ['- Fixed an authorization bypass: password checks now run before the jwt is trusted'],
+      });
+      assert.equal(result.level, 'low', filePath);
+      assert.match(result.reason, /prose|documentation/i);
+    }
+  });
+
+  it('downgrades a security keyword inside a TEST file to medium, but keeps it in source high', () => {
+    const lines = ['    assert!(verify_password(&user, "hunter2").is_err());'];
+    const inTest = assessHunk({ filePath: 'src/tests/test_auth.rs', removedLines: [], addedLines: lines });
+    const inSource = assessHunk({ filePath: 'src/auth.rs', removedLines: [], addedLines: lines });
+    assert.equal(inTest.level, 'medium');
+    assert.equal(inSource.level, 'high');
+  });
+
+  it('flags locking / atomicity primitives as high', () => {
+    const result = assessHunk({
+      filePath: 'billing.py',
+      removedLines: ['    invoice = Invoice.objects.get(pk=pk)'],
+      addedLines: ['    invoice = Invoice.objects.select_for_update().get(pk=pk)'],
+    });
+    assert.equal(result.level, 'high');
+    assert.match(result.reason, /locking|atomicity/i);
+  });
+
+  it('flags newly added retry/backoff as medium (squarelet#777)', () => {
+    const result = assessHunk({
+      filePath: 'tasks.py',
+      removedLines: ['    return'],
+      addedLines: ['    raise self.retry(exc=exc, countdown=10)'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /retry/i);
+  });
+
+  it('does not flag "block"/"clock"/"lockfile" as a lock primitive', () => {
+    const result = assessHunk({
+      filePath: 'ui.py',
+      removedLines: ['    block_size = 4'],
+      addedLines: ['    block_size = 8; clock_speed = read_lockfile()'],
+    });
+    assert.notEqual(result.level, 'high');
+  });
+});
+
+describe('formatting-only: quote style (passcore#150)', () => {
+  it('treats "x" -> \'x\' as formatting when nothing is interpolated', () => {
+    const result = assessHunk({
+      filePath: 'ChangePasswordForm.tsx',
+      removedLines: ['                helperText={getHelperText("currentPassword")}'],
+      addedLines: ["                helperText={getHelperText('currentPassword')}"],
+    });
+    assert.equal(result.level, 'low');
+    assert.match(result.reason, /formatting/i);
+  });
+
+  it('does NOT treat "$x" -> \'$x\' as formatting (shell interpolation changes meaning)', () => {
+    const result = assessHunk({
+      filePath: 'deploy.sh',
+      removedLines: ['rm -rf "$TARGET_DIR/build"'],
+      addedLines: ["rm -rf '$TARGET_DIR/build'"],
+    });
+    assert.doesNotMatch(result.reason, /formatting/i);
+  });
+});
