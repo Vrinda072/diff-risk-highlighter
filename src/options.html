@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diff Risk Highlighter: Explain settings</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --card: #f6f8fa; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0;
+    --accent: #0969da; --good: #1a7f37; --bad: #cf222e; --warn-bg: #fff8c5; --warn-fg: #7d5b00; --code: #eaeef2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --card: #151b23; --fg: #f0f6fc; --muted: #9198a1; --line: #3d444d;
+      --accent: #58a6ff; --good: #3fb950; --bad: #ff7b72; --warn-bg: #bb800926; --warn-fg: #d29922; --code: #262c36;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 36px 20px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 0; }
+  p { margin: 8px 0; }
+  .muted { color: var(--muted); }
+  a { color: var(--accent); }
+  code { background: var(--code); padding: 1px 6px; border-radius: 6px; font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: var(--code); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  label.card { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 12px 0; cursor: pointer; }
+  label.card:has(input[name="provider"]:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .badge { margin-left: auto; font-size: 11px; font-weight: 600; padding: 1px 9px; border-radius: 999px; }
+  .badge.free { background: #1f883d26; color: var(--good); }
+  .badge.paid { background: var(--warn-bg); color: var(--warn-fg); }
+  .body { margin: 10px 0 0 26px; display: none; cursor: default; }
+  label.card:has(input[name="provider"]:checked) .body { display: block; }
+  .field { display: block; margin: 10px 0 0; }
+  .field span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  input[type="text"], input[type="password"] {
+    width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--fg); font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .note { margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-fg); font-size: 12.5px; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
+  button { padding: 7px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: 600 13px inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .6; cursor: progress; }
+  #status { min-height: 1.4em; font-size: 13px; }
+  #status.ok { color: var(--good); }
+  #status.err { color: var(--bad); }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Explain settings</h1>
+  <p class="muted">Highlighting works on its own with no setup. <strong>Explain</strong> is optional: the button on a high-risk hunk asks an AI model for a one-sentence reason. Choose where that answer comes from. Nothing is sent anywhere until you click the button.</p>
+
+  <label class="card">
+    <span class="head">
+      <input type="radio" name="provider" value="ollama">
+      <h2>Ollama on your computer</h2>
+      <span class="badge free">Free · private</span>
+    </span>
+    <div class="body">
+      <p class="muted">Runs a model locally, so your code never leaves your machine. No account, no key.</p>
+      <label class="field"><span>Ollama address</span><input type="text" id="ollamaUrl" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Model <small id="ollamaHint"></small></span><input type="text" id="ollamaModel" list="ollamaModels" autocomplete="off" spellcheck="false"><datalist id="ollamaModels"></datalist></label>
+      <details>
+        <summary>First-time setup</summary>
+        <p>1. Install Ollama from <a href="https://ollama.com/download" target="_blank" rel="noreferrer">ollama.com/download</a>, then pull a model:</p>
+        <pre>ollama pull llama3.2</pre>
+        <p>2. Ollama only accepts browser extensions if you allow them. On a Mac, run this once and restart the Ollama app:</p>
+        <pre>launchctl setenv OLLAMA_ORIGINS "chrome-extension://*"</pre>
+        <p>Or, if you start it from a terminal:</p>
+        <pre>OLLAMA_ORIGINS="chrome-extension://*" ollama serve</pre>
+      </details>
+    </div>
+  </label>
+
+  <label class="card">
+    <span class="head">
+      <input type="radio" name="provider" value="gemini">
+      <h2>Google Gemini</h2>
+      <span class="badge free">Free tier</span>
+    </span>
+    <div class="body">
+      <p class="muted">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>. No card needed. Free-tier requests are rate limited.</p>
+      <label class="field"><span>API key</span><input type="password" id="geminiKey" autocomplete="off" spellcheck="false" placeholder="AIza..."></label>
+      <label class="field"><span>Model (see <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">current free models</a>)</span><input type="text" id="geminiModel" autocomplete="off" spellcheck="false"></label>
+      <p class="note">On Google's free tier, the hunks you send may be used to improve Google's products. Don't use this on private or employer code. Use Ollama for that.</p>
+    </div>
+  </label>
+
+  <label class="card">
+    <span class="head">
+      <input type="radio" name="provider" value="anthropic">
+      <h2>Anthropic Claude</h2>
+      <span class="badge paid">Paid API</span>
+    </span>
+    <div class="body">
+      <p class="muted">Pay-as-you-go key from <a href="https://console.anthropic.com/" target="_blank" rel="noreferrer">console.anthropic.com</a>.</p>
+      <label class="field"><span>API key</span><input type="password" id="anthropicKey" autocomplete="off" spellcheck="false" placeholder="sk-ant-..."></label>
+      <label class="field"><span>Model</span><input type="text" id="anthropicModel" autocomplete="off" spellcheck="false"></label>
+    </div>
+  </label>
+
+  <div class="actions">
+    <button class="primary" id="save">Save</button>
+    <button id="test">Save and test</button>
+    <span id="status" role="status"></span>
+  </div>
+  <p class="muted" style="margin-top:20px">Settings and keys are stored only in this browser (<code>chrome.storage.local</code>) and sent only to the provider you picked, when you click Explain.</p>
+</main>
+<script src="explain.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

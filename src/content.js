@@ -180,11 +180,25 @@
   // Talks to src/background.js via chrome.runtime.sendMessage rather than
   // fetching directly, because a content script's fetch is subject to
   // GitHub's own CSP — a background service worker's isn't (see
-  // background.js for the full reasoning).
+  // background.js for the full reasoning). Which provider answers (Ollama,
+  // Gemini, Anthropic) is chosen on the extension's options page.
+  const NEEDS_SETUP = new Set(['not-configured', 'no-api-key', 'invalid-api-key']);
+
+  function showExplainError(button, message) {
+    let note = button.parentElement && button.parentElement.querySelector('.driskh-explain-error');
+    if (!note) {
+      note = document.createElement('span');
+      note.className = 'driskh-explanation driskh-explain-error';
+      button.after(note);
+    }
+    note.textContent = message;
+  }
+
   function requestExplanation(hunk, result, button) {
     button.disabled = true;
     button.textContent = 'Thinking…';
     button.title = '';
+    button.parentElement?.querySelector('.driskh-explain-error')?.remove();
 
     chrome.runtime.sendMessage(
       {
@@ -199,34 +213,18 @@
       (response) => {
         if (chrome.runtime.lastError || !response) {
           resetExplainButton(button, 'Could not reach the extension background page.');
-          return;
-        }
-
-        if (response.error === 'no-api-key' || response.error === 'invalid-api-key') {
-          const promptText =
-            response.error === 'invalid-api-key'
-              ? 'That API key was rejected by Anthropic. Enter a valid Anthropic API key:'
-              : 'Enter your Anthropic API key to enable one-sentence AI explanations ' +
-                'for high-risk hunks.\n\nStored only in this browser ' +
-                '(chrome.storage.local) and sent only to api.anthropic.com when you ' +
-                'click "Explain" — never anywhere else. Everything else in this ' +
-                'extension works fully without one.';
-          const key = window.prompt(promptText);
-          if (!key || !key.trim()) {
-            resetExplainButton(button);
-            return;
-          }
-          chrome.storage.local.set({ driskhApiKey: key.trim() }, () => {
-            requestExplanation(hunk, result, button); // retry once with the new key
-          });
+          showExplainError(button, 'Could not reach the extension. Try reloading it from chrome://extensions.');
           return;
         }
 
         if (response.error) {
-          resetExplainButton(button, `Explanation failed (${response.error}).`);
+          resetExplainButton(button, response.detail || response.message);
+          showExplainError(button, response.message || `Explanation failed (${response.error}).`);
+          if (NEEDS_SETUP.has(response.error)) chrome.runtime.sendMessage({ type: 'driskh-open-options' });
           return;
         }
 
+        button.parentElement?.querySelector('.driskh-explain-error')?.remove();
         const note = document.createElement('span');
         note.className = 'driskh-explanation';
         note.textContent = `💡 ${response.explanation}`;
@@ -470,6 +468,8 @@
         color: var(--driskh-muted);
         white-space: normal;
       }
+
+      .driskh-explain-error { color: var(--driskh-high); font-style: normal; }
 
       /* summary bar */
       #${SUMMARY_BAR_ID} {

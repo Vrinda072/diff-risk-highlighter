@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1068 380" width="1068" height="380" role="img" aria-labelledby="t d">
   <title id="t">Diff Risk Highlighter architecture</title>
-  <desc id="d">A GitHub pull request page feeds content.js, which sends each hunk to risk-engine.js, which returns a level and reason that content.js draws as badges, edge stripes and a summary bar. Clicking Explain optionally sends the hunk through background.js to the Anthropic API.</desc>
+  <desc id="d">A GitHub pull request page feeds content.js, which sends each hunk to risk-engine.js, which returns a level and reason that content.js draws as badges, edge stripes and a summary bar. Clicking Explain optionally sends the hunk through background.js to the AI model you chose: Ollama on your machine, Gemini, or Anthropic.</desc>
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#8b949e"/></marker>
     <marker id="b" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#bc8cff"/></marker>
@@ -73,13 +73,13 @@
   </g>
   <text x="876" y="302" class="h mono" style="font-size:15px">background.js</text>
   <text x="876" y="324" class="s">service worker, CSP-safe</text>
-  <text x="600" y="302" class="h">Anthropic API</text>
-  <text x="600" y="324" class="s">one-sentence explanation</text>
+  <text x="600" y="302" class="h">Your AI model</text>
+  <text x="600" y="324" class="s">Ollama · Gemini · Anthropic</text>
   <path d="M856 308 H766" stroke="#bc8cff" stroke-width="2" stroke-dasharray="6 5" fill="none" marker-end="url(#b)"/>
 
   <!-- legend -->
   <line x1="32" y1="318" x2="62" y2="318" stroke="#8b949e" stroke-width="2"/>
   <text x="70" y="322" class="s">always on, runs locally</text>
   <line x1="32" y1="342" x2="62" y2="342" stroke="#bc8cff" stroke-width="2" stroke-dasharray="6 5"/>
-  <text x="70" y="346" class="s">optional: only when you click Explain, with your own API key</text>
+  <text x="70" y="346" class="s">optional: only when you click Explain, with the provider you choose (Ollama is free and local)</text>
 </svg>
