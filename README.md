@@ -34,9 +34,27 @@ Code review is a large, ongoing investment of developer time [[1]](#references) 
 - **Safe hunks are left alone.** Reformatting, renames, comments, docs, generated and vendored files score low and get no marking at all.
 - **A sticky summary bar** with counts, a proportional risk meter and one-click jumps to each high-risk hunk (two high hunks in one file read `context.rs (1/2)` and `(2/2)`).
 - **A switch** (and the toolbar icon) to turn highlighting off and on.
-- **An optional "Explain" button** on high-risk hunks asks Claude for a one-sentence reason. Nothing leaves your browser unless you click it.
+- **An optional "Explain" button** on high-risk hunks asks an AI model for a one-sentence reason. It can run **for free**, on your own machine with Ollama or on Google's Gemini free tier, or use a paid Anthropic key. Nothing leaves your browser unless you click it.
 
 It follows GitHub's theme (light, dark, high-contrast) because every color comes from GitHub's own Primer CSS variables [[11]](#references). The screenshot above is a live pull request: 3 high, 7 medium and 41 low out of 51 hunks.
+
+### Explain, for free
+
+<div align="center">
+<img src="docs/img/explain-live.png" alt="A high-risk hunk on a live pull request with an inline sentence written by a local Ollama model explaining what could go wrong." width="880">
+</div>
+
+That sentence was written by a local `qwen3` model through Ollama, on a live pull request, with no account and no key. Pick the provider on the options page (it opens by itself the first time you click Explain, or use `chrome://extensions` → Details → Extension options):
+
+<div align="center">
+<img src="docs/img/options.png" alt="The Explain settings page with three providers: Ollama on your computer (free, private), Google Gemini (free tier) and Anthropic Claude (paid)." width="520">
+</div>
+
+| Provider | Cost | Where the hunk goes |
+|---|---|---|
+| **Ollama** | Free | Stays on your computer |
+| **Google Gemini** | Free tier, rate limited | Sent to Google. On the free tier it may be used to improve Google's products [[14]](#references), so skip it for private code |
+| **Anthropic Claude** | Paid API | Sent to Anthropic |
 
 ## How it works
 
@@ -44,7 +62,7 @@ It follows GitHub's theme (light, dark, high-contrast) because every color comes
 <img src="docs/img/architecture.svg" alt="Architecture: GitHub PR page to content.js to risk-engine.js to badges and the summary bar, with an optional dashed branch from Explain through background.js to the Anthropic API." width="900">
 </div>
 
-`risk-engine.js` knows nothing about the DOM: it takes one hunk and returns `{ level, reason }`, which is why it is unit-testable in plain Node. `content.js` does everything GitHub-specific, for both GitHub's classic diff markup and its newer React layout (`/changes`), and re-scans with a debounced `MutationObserver` [[12]](#references) as GitHub lazy-loads files. The optional Explain call is made from a background service worker, because a content script's `fetch` is subject to GitHub's page CSP [[13]](#references).
+`risk-engine.js` knows nothing about the DOM: it takes one hunk and returns `{ level, reason }`, which is why it is unit-testable in plain Node. `content.js` does everything GitHub-specific, for both GitHub's classic diff markup and its newer React layout (`/changes`), and re-scans with a debounced `MutationObserver` [[12]](#references) as GitHub lazy-loads files. The optional Explain call is made from a background service worker, because a content script's `fetch` is subject to GitHub's page CSP [[13]](#references). The providers live in [`src/explain.js`](src/explain.js), which takes `fetch` as an argument so every request shape and error path is unit-tested without a network or a key.
 
 ## The risk engine
 
@@ -89,7 +107,7 @@ No build step, no runtime dependencies.
 2. Click **Load unpacked** and choose this folder (the one containing `manifest.json`).
 3. Open any pull request's **Files changed** tab.
 
-The toolbar icon toggles highlighting (an `OFF` badge shows when it's disabled). The first time you click **Explain**, it asks for an Anthropic API key [[14]](#references), stored only in `chrome.storage.local` and sent only to `api.anthropic.com`. Everything else works without one.
+The toolbar icon toggles highlighting (an `OFF` badge shows when it's disabled). Everything works without any setup except **Explain**, which needs a provider. For the free local one, install [Ollama](https://ollama.com/download), run `ollama pull llama3.2`, and allow the extension to talk to it (the options page shows the one command, `OLLAMA_ORIGINS="chrome-extension://*"` [[14]](#references)). Keys and settings are stored only in `chrome.storage.local` and sent only to the provider you picked.
 
 ## Develop
 
@@ -112,6 +130,8 @@ npm install && npx playwright install chromium
 npm run test:e2e
 ```
 
+`OLLAMA_E2E=1 npm run test:e2e` also runs Explain against a real local model (needs `ollama serve` with `OLLAMA_ORIGINS` set). Without it, the Explain tests that run are first-run guidance and the options page.
+
 Signed out, GitHub serves the classic UI; the React UI is only served to signed-in sessions. To run against it, sign in once in the window this opens (you type your own credentials; cookies are saved to the gitignored `e2e/.auth/`): `npm run test:e2e:login`.
 
 **Re-record the demo** (live network, Playwright's bundled ffmpeg, and `pip install pillow`):
@@ -127,7 +147,8 @@ node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 - **Narrow keyword lists on purpose.** Broader ones produced absurd false positives on real PRs; the cost is missing variants like `pwd`.
 - **Added locking is a nudge, not proof of a fix.** It fires on any hunk that adds a lock, including ordinary new concurrent code.
 - **GitHub changes its DOM.** It did mid-project: `/files` became `/changes` with a React rewrite. Both are supported, with selectors documented in [docs/github-diff-dom.md](docs/github-diff-dom.md), but expect to re-check them occasionally.
-- **Not yet verified:** the e2e suite against the React UI (signed out, GitHub serves the classic UI, which is what has run), so lazy-loading on very large PRs there is untested. And "Explain" has only been tested with a mocked reply, not the live API.
+- **Not yet verified:** the e2e suite against the React UI (signed out, GitHub serves the classic UI, which is what has run), so lazy-loading on very large PRs there is untested.
+- **Explain, what has and hasn't been tried for real.** Ollama was run for real through the extension on a live PR (a local `qwen3` model). Gemini was only tried with a deliberately invalid key, which Google rejected with the expected error, so the endpoint and request shape are confirmed but a successful answer is not. Anthropic is covered by unit tests with a fake `fetch`. Small local models can be wordy or vague, and Gemini's free tier is rate limited and its model names change, which is why the model is editable.
 - github.com only (no Enterprise domains). The sticky bar can overlap GitHub's own sticky headers slightly while scrolling.
 
 ## References
@@ -153,7 +174,7 @@ node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 11. [Primer](https://primer.style): GitHub's design system, whose CSS variables the extension's colors use.
 12. MDN: [MutationObserver](https://developer.mozilla.org/en-US/docs/Web/API/MutationObserver).
 13. Chrome for Developers: [extensions](https://developer.chrome.com/docs/extensions/develop), [content scripts](https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts) and the [action API](https://developer.chrome.com/docs/extensions/reference/api/action) (toolbar toggle).
-14. Anthropic: [Messages API](https://docs.anthropic.com/en/api/messages) (the optional Explain call).
+14. The optional Explain providers: Ollama's [FAQ](https://docs.ollama.com/faq) (`OLLAMA_ORIGINS` for browser extensions), Google's Gemini API [pricing and free tier](https://ai.google.dev/gemini-api/docs/pricing) (including the free-tier data-use note) and [generateContent reference](https://ai.google.dev/api/generate-content), and Anthropic's [Messages API](https://docs.anthropic.com/en/api/messages).
 15. Node.js: [test runner](https://nodejs.org/api/test.html) (what `npm test` uses).
 16. Playwright: [testing Chrome extensions](https://playwright.dev/docs/chrome-extensions) (the e2e suite and the demo recording).
 17. [tree-sitter](https://tree-sitter.github.io/tree-sitter/): the parser library a v2 could build on. GNU diffutils: [unified diff format](https://www.gnu.org/software/diffutils/manual/html_node/Unified-Format.html), which the test fixtures use.
@@ -169,7 +190,9 @@ node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 manifest.json            Manifest V3 config
 src/risk-engine.js       The heuristics: pure, DOM-free, unit-tested
 src/content.js           Finds hunks (classic + React DOM), draws badges and the summary bar
-src/background.js        Optional Anthropic call (CSP-safe) + toolbar toggle
+src/background.js        Runs the optional Explain request (CSP-safe) + toolbar toggle
+src/explain.js           Explain providers: Ollama, Gemini, Anthropic (pure, unit-tested)
+src/options.html, .js    The Explain settings page
 icons/                   Generated by scripts/make-icons.js
 docs/img/                Demo recording, live screenshot, diagrams
 docs/github-diff-dom.md  Selector notes for GitHub's two diff layouts
