@@ -156,11 +156,18 @@
   // logic didn't change just because the word is scary.)
   // ---------------------------------------------------------------------
 
+  // Interpolation/escape characters make quote style semantic (`"$x"` vs
+  // `'$x'` differ in shell, Ruby, PHP, Perl), so quotes only count as
+  // cosmetic when none are present (Prettier's quote normalization, passcore#150).
+  const QUOTE_SEMANTIC_RE = /[$`\\]|#\{/;
+
   function normalizeForFormatting(lines) {
-    return lines
-      .join('\n')
+    const joined = lines.join('\n');
+    let out = joined
       .replace(/\s+/g, '')
       .replace(/,+([)\]}])/g, '$1'); // trailing commas are cosmetic (see passcore#150 fixture)
+    if (!QUOTE_SEMANTIC_RE.test(joined)) out = out.replace(/"/g, "'");
+    return out;
   }
 
   function detectFormattingOnly(removedLines, addedLines) {
@@ -509,11 +516,16 @@
   //     and unrelated state — too generic to be a useful signal alone.
   // So: no wildcards, no single common English words: only fairly
   // unambiguous security-specific terms/acronyms.
+  //
+  // Boundaries use letter-lookarounds rather than \b: \b treats `_` as a word
+  // character, so `\bpassword\b` silently missed `verify_password` and
+  // `user_password_hash` — most real identifiers. camelCase is split into words
+  // first (`checkPassword` -> `check Password`) for the same reason.
   const SECURITY_KEYWORDS_RE =
-    /\b(password|passwd|secret|jwt|oauth|csrf|xsrf|cors|ssrf|xss|authenticat(?:e|es|ed|ing|ion)|authoriz(?:e|es|ed|ing|ation)|unauthorized|encrypt(?:s|ed|ing|ion)?|decrypt(?:s|ed|ing|ion)?|crypto|superuser|privileged?|sanitiz(?:e|es|ed|ing|ation)|content-security-policy|x-content-type-options|set-cookie)\b/i;
+    /(?<![A-Za-z])(passwords?|passwd|secrets?|jwt|oauth|csrf|xsrf|cors|ssrf|xss|authenticat(?:e|es|ed|ing|ion)|authoriz(?:e|es|ed|ing|ation)|unauthorized|encrypt(?:s|ed|ing|ion)?|decrypt(?:s|ed|ing|ion)?|crypto(?:graph(?:y|ic))?|superuser|privileged?|sanitiz(?:e|es|ed|ing|ation)|content-security-policy|x-content-type-options|set-cookie)(?![A-Za-z])/i;
 
   function detectSecuritySensitive(removedLines, addedLines) {
-    const joined = [...removedLines, ...addedLines].join('\n');
+    const joined = [...removedLines, ...addedLines].join('\n').replace(/([a-z0-9])([A-Z])/g, '$1 $2');
     return SECURITY_KEYWORDS_RE.test(joined);
   }
 
@@ -697,6 +709,17 @@
       };
     }
 
+    // The fix side of the same coin: most real race fixes *add* locking or
+    // atomicity (nuke, redisearch, spp, pdns fixtures). Medium, not high —
+    // new synchronization is usually correct, but it changes what can
+    // interleave, so a reviewer should confirm every access path takes it.
+    if (addedSync > removedSync) {
+      return {
+        severity: LEVELS.MEDIUM,
+        reason: 'Adds locking/atomicity — usually a concurrency fix; check what can now interleave and that every access path to the shared state takes the same lock.',
+      };
+    }
+
     const added = codeOnly(addedLines);
     if (addedSync > 0 || !CONCURRENCY_CONTEXT_RE.test([...removedLines, ...addedLines].join('\n'))) return null;
     for (const { check, act } of CHECK_THEN_ACT_PATTERNS) {
@@ -805,7 +828,12 @@
       });
     }
 
-    if (!isDocumentation && detectSecuritySensitive(removedLines, addedLines)) {
+    // In a test file a security keyword is only a medium nudge, and it must
+    // not outrank a more specific finding at the same level (e.g. "skipped
+    // test"), so that candidate is pushed after detectWeakenedTest below.
+    const securityHit = !isDocumentation && detectSecuritySensitive(removedLines, addedLines);
+    const securityInTest = securityHit && isTestFile(filePath);
+    if (securityHit && !securityInTest) {
       candidates.push({
         severity: LEVELS.HIGH,
         reason:
@@ -826,6 +854,13 @@
     const weakenedTest = detectWeakenedTest(filePath, removedLines, addedLines);
     if (weakenedTest) {
       candidates.push({ severity: LEVELS.MEDIUM, reason: weakenedTest });
+    }
+
+    if (securityInTest) {
+      candidates.push({
+        severity: LEVELS.MEDIUM,
+        reason: 'A test touching security-related behavior — check no assertion was weakened or removed.',
+      });
     }
 
     const signatureChange = detectSignatureChange(removedLines, addedLines);

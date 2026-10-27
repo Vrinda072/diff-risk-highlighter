@@ -98,19 +98,11 @@ for (const pr of REAL_PRS) {
     });
 
     test('summary bar low count matches risk-engine on the fixture', async () => {
-      // Known bug, both UIs: GitHub puts an "expand to end of file" row
-      // after a file's last hunk that reuses the hunk-boundary cell with
-      // no @@ header and no lines under it. src/content.js treats it as a
-      // real hunk and scores it low, so the bar over-counts "low" (and the
-      // total) by one per such file. Declared as an expected failure only
-      // when those rows are present, so this starts failing loudly
-      // ("expected to fail, but passed") once content.js skips them.
-      const phantomRows = await page.evaluate(
-        (sel) => [...document.querySelectorAll(sel)].filter((td) => !td.textContent.trim()).length,
-        HUNK_BOUNDARY
-      );
-      test.fail(phantomRows > 0, `${phantomRows} empty expand-to-EOF row(s) counted as low-risk hunks`);
-
+      // GitHub puts an "expand to end of file" row after a file's last hunk
+      // that reuses the hunk-boundary cell with no @@ header and no lines
+      // under it. src/content.js used to count it as a low-risk hunk (this
+      // test carried test.fail() for that); it now skips such rows, so the
+      // bar's low count must match the engine exactly.
       const shown = await readSummaryCounts(page);
       expect(shown.low).toBe(expected.low);
     });

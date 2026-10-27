@@ -710,3 +710,83 @@ describe('concurrency: removed synchronization and new check-then-act', () => {
     assert.match(result.reason, /check-then-act on "seen"/);
   });
 });
+
+describe('v1.1 layers: identifiers, test files, quote style, added locking', () => {
+  const lines = ['    assert!(verify_password(&user, "hunter2").is_err());'];
+
+  it('matches security keywords inside snake_case and camelCase identifiers', () => {
+    for (const line of ['    ok = verify_password(user, pw)', '    const ok = checkPassword(user, pw);', '    user_secret_key = load()']) {
+      const result = assessHunk({ filePath: 'src/auth.py', removedLines: [], addedLines: [line] });
+      assert.equal(result.level, 'high', line);
+    }
+  });
+
+  it('does not match keywords that are merely part of a longer word', () => {
+    for (const line of ['    cryptocurrency_price = 4', '    passwordless = True', '    secretary = Person()']) {
+      const result = assessHunk({ filePath: 'src/app.py', removedLines: [], addedLines: [line] });
+      assert.notEqual(result.level, 'high', line);
+    }
+  });
+
+  it('a security keyword in a TEST file is medium, but high in source', () => {
+    assert.equal(assessHunk({ filePath: 'src/tests/test_auth.rs', removedLines: [], addedLines: lines }).level, 'medium');
+    assert.equal(assessHunk({ filePath: 'src/auth.rs', removedLines: [], addedLines: lines }).level, 'high');
+  });
+
+  it('a skipped test keeps its specific reason even when it mentions a security word', () => {
+    const result = assessHunk({
+      filePath: 'src/__tests__/login.test.js',
+      removedLines: ["  it('rejects bad passwords', async () => {"],
+      addedLines: ["  it.skip('rejects bad passwords', async () => {"],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /skipped/);
+  });
+
+  it('treats "x" -> \'x\' as formatting when nothing is interpolated', () => {
+    const result = assessHunk({
+      filePath: 'ChangePasswordForm.tsx',
+      removedLines: ['                helperText={getHelperText("currentPassword")}'],
+      addedLines: ["                helperText={getHelperText('currentPassword')}"],
+    });
+    assert.equal(result.level, 'low');
+    assert.match(result.reason, /formatting/i);
+  });
+
+  it('does NOT treat "$x" -> \'$x\' as formatting (shell interpolation changes meaning)', () => {
+    const result = assessHunk({
+      filePath: 'deploy.sh',
+      removedLines: ['rm -rf "$TARGET_DIR/build"'],
+      addedLines: ["rm -rf '$TARGET_DIR/build'"],
+    });
+    assert.doesNotMatch(result.reason, /formatting/i);
+  });
+
+  it('flags ADDED locking as medium (most race fixes add synchronization)', () => {
+    const result = assessHunk({
+      filePath: 'billing.py',
+      removedLines: ['    invoice = Invoice.objects.get(pk=pk)'],
+      addedLines: ['    invoice = Invoice.objects.select_for_update().get(pk=pk)'],
+    });
+    assert.equal(result.level, 'medium');
+    assert.match(result.reason, /locking|atomicity/i);
+  });
+
+  it('still flags REMOVED locking as high (existing behavior is untouched)', () => {
+    const result = assessHunk({
+      filePath: 'billing.py',
+      removedLines: ['    with self._lock:', '        self.count += 1'],
+      addedLines: ['    self.count += 1'],
+    });
+    assert.equal(result.level, 'high');
+  });
+
+  it('does not mistake block/clock/lockfile for a lock', () => {
+    const result = assessHunk({
+      filePath: 'ui.py',
+      removedLines: ['    block_size = 4'],
+      addedLines: ['    block_size = 8; clock_speed = read_lockfile()'],
+    });
+    assert.equal(result.level, 'low');
+  });
+});
