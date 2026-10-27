@@ -1,0 +1,97 @@
+diff --git a/packages/devtools_app/lib/src/performance/html_performance_screen.dart b/packages/devtools_app/lib/src/performance/html_performance_screen.dart
+index 63ba8dcce0a..c77bf295cc7 100644
+--- a/packages/devtools_app/lib/src/performance/html_performance_screen.dart
++++ b/packages/devtools_app/lib/src/performance/html_performance_screen.dart
+@@ -180,7 +180,7 @@ class _HtmlCpuProfiler extends HtmlCpuProfiler {
+   ) : super(
+           HtmlCpuFlameChart(profileDataProvider),
+           HtmlCpuCallTree(profileDataProvider),
+-          CpuBottomUp(profileDataProvider),
++          HtmlCpuBottomUp(profileDataProvider),
+           defaultView: CpuProfilerViewType.callTree,
+         );
+ 
+diff --git a/packages/devtools_app/lib/src/profiler/html_cpu_profile_tables.dart b/packages/devtools_app/lib/src/profiler/html_cpu_profile_tables.dart
+index 50baa1d2a07..a641f8fc6b4 100644
+--- a/packages/devtools_app/lib/src/profiler/html_cpu_profile_tables.dart
++++ b/packages/devtools_app/lib/src/profiler/html_cpu_profile_tables.dart
+@@ -54,8 +54,8 @@ class HtmlCpuCallTree extends HtmlCpuProfilerView {
+   void reset() => callTreeTable.model.setRows(<CpuStackFrame>[]);
+ }
+ 
+-class CpuBottomUp extends HtmlCpuProfilerView {
+-  CpuBottomUp(CpuProfileDataProvider profileDataProvider)
++class HtmlCpuBottomUp extends HtmlCpuProfilerView {
++  HtmlCpuBottomUp(CpuProfileDataProvider profileDataProvider)
+       : super(CpuProfilerViewType.bottomUp, profileDataProvider) {
+     flex();
+     layoutVertical();
+diff --git a/packages/devtools_app/lib/src/profiler/html_cpu_profiler.dart b/packages/devtools_app/lib/src/profiler/html_cpu_profiler.dart
+index 6f943d26dba..d7a92a85914 100644
+--- a/packages/devtools_app/lib/src/profiler/html_cpu_profiler.dart
++++ b/packages/devtools_app/lib/src/profiler/html_cpu_profiler.dart
+@@ -37,7 +37,7 @@ abstract class HtmlCpuProfiler extends CoreElement {
+ 
+   HtmlCpuFlameChart flameChart;
+ 
+-  CpuBottomUp bottomUp;
++  HtmlCpuBottomUp bottomUp;
+ 
+   HtmlCpuCallTree callTree;
+ 
+diff --git a/packages/devtools_app/lib/src/timeline/html_event_details.dart b/packages/devtools_app/lib/src/timeline/html_event_details.dart
+index 4e8b53d5474..8aa667bf983 100644
+--- a/packages/devtools_app/lib/src/timeline/html_event_details.dart
++++ b/packages/devtools_app/lib/src/timeline/html_event_details.dart
+@@ -186,7 +186,7 @@ class _CpuProfiler extends HtmlCpuProfiler {
+   ) : super(
+           HtmlCpuFlameChart(profileDataProvider),
+           HtmlCpuCallTree(profileDataProvider),
+-          CpuBottomUp(profileDataProvider),
++          HtmlCpuBottomUp(profileDataProvider),
+         );
+ 
+   final TimelineController _timelineController;
+diff --git a/packages/devtools_app/lib/src/timeline/html_timeline_screen.dart b/packages/devtools_app/lib/src/timeline/html_timeline_screen.dart
+index 61d46c3f404..18e929531b2 100644
+--- a/packages/devtools_app/lib/src/timeline/html_timeline_screen.dart
++++ b/packages/devtools_app/lib/src/timeline/html_timeline_screen.dart
+@@ -28,7 +28,7 @@ import 'html_frames_bar_chart.dart';
+ import 'timeline_controller.dart';
+ import 'timeline_flame_chart.dart';
+ import 'timeline_model.dart';
+-import 'timeline_protocol.dart';
++import 'timeline_processor.dart';
+ 
+ // TODO(devoncarew): show the Skia picture (gpu drawing commands) for a frame
+ 
+diff --git a/packages/devtools_app/lib/src/timeline/timeline_controller.dart b/packages/devtools_app/lib/src/timeline/timeline_controller.dart
+index af390b2bcbd..b144a5496df 100644
+--- a/packages/devtools_app/lib/src/timeline/timeline_controller.dart
++++ b/packages/devtools_app/lib/src/timeline/timeline_controller.dart
+@@ -11,7 +11,7 @@ import '../profiler/cpu_profile_service.dart';
+ import '../profiler/cpu_profile_transformer.dart';
+ import '../service_manager.dart';
+ import 'timeline_model.dart';
+-import 'timeline_protocol.dart';
++import 'timeline_processor.dart';
+ import 'timeline_service.dart';
+ 
+ const String timelineScreenId = 'timeline';
+diff --git a/packages/devtools_app/lib/src/timeline/timeline_protocol.dart b/packages/devtools_app/lib/src/timeline/timeline_processor.dart
+similarity index 100%
+rename from packages/devtools_app/lib/src/timeline/timeline_protocol.dart
+rename to packages/devtools_app/lib/src/timeline/timeline_processor.dart
+diff --git a/packages/devtools_app/test/timeline_protocol_test.dart b/packages/devtools_app/test/timeline_protocol_test.dart
+index c476d7c7518..f7ade56f0c5 100644
+--- a/packages/devtools_app/test/timeline_protocol_test.dart
++++ b/packages/devtools_app/test/timeline_protocol_test.dart
+@@ -4,7 +4,7 @@
+ 
+ import 'package:devtools_app/src/timeline/timeline_controller.dart';
+ import 'package:devtools_app/src/timeline/timeline_model.dart';
+-import 'package:devtools_app/src/timeline/timeline_protocol.dart';
++import 'package:devtools_app/src/timeline/timeline_processor.dart';
+ import 'package:devtools_app/src/utils.dart';
+ import 'package:devtools_testing/support/test_utils.dart';
+ import 'package:devtools_testing/support/timeline_test_data.dart';
