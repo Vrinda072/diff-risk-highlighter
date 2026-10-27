@@ -61,7 +61,7 @@ Safe-transform checks run **first**, so renaming a variable called `password` is
 
 A few design rules that came from reading real output rather than from theory:
 
-- **Narrow keyword lists.** `admin`, `token` and `auth*` flagged every hunk of `django.contrib.admin`. Keywords now match as whole words *inside* identifiers (`verify_password`, `checkPassword`) but not as fragments (`secretary`).
+- **Narrow keyword lists.** `admin` flagged every hunk of `django.contrib.admin`, and `auth*` matched "author". Keywords now match as whole words *inside* identifiers (`verify_password`, `checkPassword`) but not as fragments (`secretary`).
 - **Prose never raises a security flag.** A CHANGELOG line that *describes* an authorization fix isn't one. Version bumps like `"0.16.2"` to `"0.16.3"` are ignored by the off-by-one detector.
 - **Formatting-only includes quote style**, unless the line interpolates (`"$x"` and `'$x'` differ in shell).
 - **Similarity** between an old and new line, used to spot a one-token edit, is the Sørensen–Dice coefficient over character bigrams [[4]](#references), not a full diff.
