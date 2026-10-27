@@ -6,11 +6,6 @@
 
 A Chrome extension that reads GitHub's **Files changed** tab and flags risky hunks with plain static heuristics. It runs instantly, offline, with no API key.
 
-[![tests](https://github.com/Vrinda072/diff-risk-highlighter/actions/workflows/test.yml/badge.svg)](https://github.com/Vrinda072/diff-risk-highlighter/actions/workflows/test.yml)
-![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
-![Runtime dependencies](https://img.shields.io/badge/runtime%20dependencies-none-3fb950)
-![Calibrated on](https://img.shields.io/badge/calibrated%20on-42%20real%20PRs-d29922)
-
 <br>
 
 <img src="docs/img/demo.gif" alt="Screen recording of the extension on a live GitHub pull request in dark mode: it scans every hunk, jumps to the high-risk ones, leaves docs untouched, and toggles off and on." width="880">
