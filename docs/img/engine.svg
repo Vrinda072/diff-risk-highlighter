@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1068 640" width="1068" height="640" role="img" aria-labelledby="t d">
+  <title id="t">How the risk engine scores a hunk</title>
+  <desc id="d">A hunk is first checked for provably safe transforms (generated or vendored file, formatting only, comments only, pure rename), which score low. Otherwise the risk detectors run and the highest severity wins. With no signal, a hunk over 40 lines of code is medium and anything else is low. The right panel lists the detectors by level.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#8b949e"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#3fb950"/></marker>
+    <marker id="r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#f85149"/></marker>
+    <marker id="y" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#d29922"/></marker>
+    <linearGradient id="risk" x1="0" x2="1"><stop offset="0" stop-color="#f85149"/><stop offset="1" stop-color="#d29922"/></linearGradient>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#010409" flood-opacity=".6"/></filter>
+    <style>
+      text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .h { font-size: 15px; font-weight: 700; fill: #f0f6fc; }
+      .m { font-size: 12.5px; fill: #c9d1d9; }
+      .s { font-size: 11.5px; fill: #8b949e; }
+      .l { font-size: 11px; font-weight: 700; letter-spacing: .03em; }
+      .cap { font-size: 12px; fill: #8b949e; font-weight: 700; letter-spacing: .12em; }
+      .card { fill: #161b22; stroke: #30363d; stroke-width: 1.2; }
+      .row { font-size: 13px; fill: #e6edf3; }
+      .tag { font-size: 11px; fill: #8b949e; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
+  </defs>
+
+  <rect x=".6" y=".6" width="1066.8" height="638.8" rx="16" fill="#0d1117" stroke="#30363d"/>
+  <text x="32" y="38" class="cap">RISK ENGINE</text>
+  <text x="620" y="38" class="cap">WHAT IT LOOKS FOR</text>
+
+  <!-- flow column -->
+  <g filter="url(#sh)">
+    <rect class="card" x="40" y="60" width="330" height="62" rx="12"/>
+    <rect class="card" x="40" y="162" width="330" height="92" rx="12"/>
+    <rect class="card" x="40" y="294" width="330" height="62" rx="12"/>
+    <rect class="card" x="40" y="396" width="330" height="62" rx="12"/>
+    <rect class="card" x="40" y="498" width="330" height="62" rx="12"/>
+  </g>
+  <rect x="40" y="162" width="5" height="92" rx="2.5" fill="#3fb950"/>
+
+  <text x="60" y="87" class="h">1 · One hunk</text>
+  <text x="60" y="106" class="s">file path, added lines, removed lines</text>
+
+  <text x="62" y="190" class="h">2 · Provably safe to skim?</text>
+  <text x="62" y="212" class="m">generated or vendored file · formatting</text>
+  <text x="62" y="230" class="m">only · comments only · pure rename</text>
+
+  <text x="60" y="321" class="h">3 · Run the risk detectors</text>
+  <text x="60" y="340" class="s">every detector votes, highest severity wins</text>
+
+  <text x="60" y="423" class="h">4 · Any signal?</text>
+  <text x="60" y="442" class="s">the top finding becomes the badge's reason</text>
+
+  <text x="60" y="525" class="h">5 · Over 40 lines of code?</text>
+  <text x="60" y="544" class="s">a big hunk is worth a read even with no flag</text>
+
+  <!-- vertical arrows -->
+  <path d="M205 124 V158" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <path d="M205 256 V290" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <text x="217" y="278" class="l" style="fill:#8b949e">no</text>
+  <path d="M205 358 V392" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <path d="M205 460 V494" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <text x="217" y="482" class="l" style="fill:#8b949e">no</text>
+
+  <!-- result boxes -->
+  <g filter="url(#sh)">
+    <rect x="412" y="176" width="130" height="64" rx="12" fill="#12261a" stroke="#238636" stroke-width="1.4"/>
+    <rect x="412" y="396" width="130" height="62" rx="12" fill="#2b1a1a" stroke="url(#risk)" stroke-width="1.6"/>
+    <rect x="412" y="498" width="130" height="62" rx="12" fill="#2d2411" stroke="#9e6a03" stroke-width="1.4"/>
+  </g>
+  <text x="477" y="203" class="h" text-anchor="middle" style="fill:#3fb950">LOW</text>
+  <text x="477" y="222" class="s" text-anchor="middle">left untouched</text>
+  <text x="477" y="422" class="h" text-anchor="middle" style="fill:#ff7b72">HIGH or</text>
+  <text x="477" y="441" class="h" text-anchor="middle" style="fill:#d29922">MEDIUM</text>
+  <text x="477" y="524" class="h" text-anchor="middle" style="fill:#d29922">MEDIUM</text>
+  <text x="477" y="543" class="s" text-anchor="middle">large hunk</text>
+
+  <path d="M372 208 H408" stroke="#3fb950" stroke-width="2" fill="none" marker-end="url(#g)"/>
+  <text x="390" y="198" class="l" text-anchor="middle" style="fill:#3fb950">yes</text>
+  <path d="M372 427 H408" stroke="#f85149" stroke-width="2" fill="none" marker-end="url(#r)"/>
+  <text x="390" y="417" class="l" text-anchor="middle" style="fill:#ff7b72">yes</text>
+  <path d="M372 529 H408" stroke="#d29922" stroke-width="2" fill="none" marker-end="url(#y)"/>
+  <text x="390" y="519" class="l" text-anchor="middle" style="fill:#d29922">yes</text>
+  <path d="M205 562 V588" stroke="#8b949e" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <text x="217" y="582" class="l" style="fill:#8b949e">no</text>
+  <g filter="url(#sh)"><rect x="40" y="592" width="330" height="32" rx="10" fill="#12261a" stroke="#238636" stroke-width="1.4"/></g>
+  <text x="205" y="613" class="h" text-anchor="middle" style="fill:#3fb950;font-size:13px">LOW</text>
+
+  <!-- detector panel -->
+  <g filter="url(#sh)"><rect class="card" x="600" y="60" width="438" height="564" rx="14"/></g>
+
+  <circle cx="626" cy="92" r="6" fill="#f85149"/>
+  <text x="640" y="97" class="l" style="fill:#ff7b72;font-size:12px">HIGH</text>
+  <g>
+    <text x="626" y="128" class="row">SQL built by string concatenation</text><text x="1012" y="128" class="tag" text-anchor="end">CWE-89</text>
+    <text x="626" y="156" class="row">Off-by-one shape (swap, ± 1 term)</text><text x="1012" y="156" class="tag" text-anchor="end">CWE-193</text>
+    <text x="626" y="184" class="row">Removed try / catch / except</text><text x="1012" y="184" class="tag" text-anchor="end">error path</text>
+    <text x="626" y="212" class="row">Removed lock / atomic</text><text x="1012" y="212" class="tag" text-anchor="end">CWE-362</text>
+    <text x="626" y="240" class="row">Security keywords in source</text><text x="1012" y="240" class="tag" text-anchor="end">auth, csrf, jwt…</text>
+  </g>
+  <line x1="626" y1="262" x2="1012" y2="262" stroke="#30363d"/>
+
+  <circle cx="626" cy="290" r="6" fill="#d29922"/>
+  <text x="640" y="295" class="l" style="fill:#d29922;font-size:12px">MEDIUM</text>
+  <g>
+    <text x="626" y="326" class="row">Added locking or atomics</text><text x="1012" y="326" class="tag" text-anchor="end">race fixes</text>
+    <text x="626" y="354" class="row">Check-then-act, no lock</text><text x="1012" y="354" class="tag" text-anchor="end">CWE-367</text>
+    <text x="626" y="382" class="row">Weakened or skipped test</text><text x="1012" y="382" class="tag" text-anchor="end">tests only</text>
+    <text x="626" y="410" class="row">Removed conditional branch</text><text x="1012" y="410" class="tag" text-anchor="end">dead code?</text>
+    <text x="626" y="438" class="row">Function signature changed</text><text x="1012" y="438" class="tag" text-anchor="end">call sites</text>
+    <text x="626" y="466" class="row">Security keyword in a test</text><text x="1012" y="466" class="tag" text-anchor="end">nudge</text>
+    <text x="626" y="494" class="row">Large hunk, no other signal</text><text x="1012" y="494" class="tag" text-anchor="end">&gt; 40 lines</text>
+  </g>
+  <line x1="626" y1="516" x2="1012" y2="516" stroke="#30363d"/>
+
+  <circle cx="626" cy="544" r="6" fill="#3fb950"/>
+  <text x="640" y="549" class="l" style="fill:#3fb950;font-size:12px">ALWAYS LOW FIRST</text>
+  <text x="626" y="574" class="m">Safe transforms are checked before any risk</text>
+  <text x="626" y="592" class="m">word, so renaming a variable called</text>
+  <text x="626" y="610" class="m"><tspan style="font-family:ui-monospace,Menlo,monospace;fill:#e6edf3">password</tspan> is still safe to skim.</text>
+</svg>

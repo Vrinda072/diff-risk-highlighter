@@ -1,135 +1,168 @@
+<div align="center">
+
 # Diff Risk Highlighter
 
-A Chrome extension that reads a GitHub pull request's **Files changed** tab and tells you which hunks deserve careful review and which are safe to skim. It uses plain static heuristics, so it runs instantly, offline, and with no API key.
+**Know which hunks of a pull request deserve your attention, and which are safe to skim.**
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/screenshot-dark.png">
-  <img alt="Diff Risk Highlighter on a pull request: a summary bar with risk counts, and HIGH / MEDIUM badges with colored edges on flagged hunks" src="docs/img/screenshot-light.png">
-</picture>
+A Chrome extension that reads GitHub's **Files changed** tab and flags risky hunks with plain static heuristics. It runs instantly, offline, with no API key.
 
-<sub>Rendered by headless Chrome from [a fixture page](test/dom/pull/999/changes/new-ui-fixture.html) that copies GitHub's current diff markup, running the real `content.js`. Follows GitHub's light/dark theme.</sub>
+[![tests](https://github.com/Vrinda072/diff-risk-highlighter/actions/workflows/test.yml/badge.svg)](https://github.com/Vrinda072/diff-risk-highlighter/actions/workflows/test.yml)
+![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
+![Runtime dependencies](https://img.shields.io/badge/runtime%20dependencies-none-3fb950)
+![Calibrated on](https://img.shields.io/badge/calibrated%20on-42%20real%20PRs-d29922)
 
-## What it does
+<br>
 
-- **Flags risky hunks** with a colored edge and a `HIGH` / `MEDIUM` badge. Hover a badge to see *why*.
-- **Leaves safe hunks alone.** Reformatting, renames, comments, docs, generated and vendored files are scored low and left untouched.
-- **Summarizes the PR** in a sticky bar: counts, a proportional risk meter, and one-click jumps to every high-risk hunk.
-- **Optional "Explain" button** on high-risk hunks asks Claude for a one-sentence explanation. Nothing leaves your browser unless you click it.
+<img src="docs/img/demo.gif" alt="Screen recording of the extension on a live GitHub pull request in dark mode: it scans every hunk, jumps to the high-risk ones, leaves docs untouched, and toggles off and on." width="880">
+
+<sub>The real extension, loaded unpacked in Chromium, on a live pull request ([stellar/passkey-kit#4](https://github.com/stellar/passkey-kit/pull/4), an authorization-bypass fix) in GitHub's dark theme. Cursor and captions are added by [the recording script](scripts/record-demo.js). <a href="docs/img/demo.webm">Higher-quality WebM</a>.</sub>
+
+</div>
+
+<br>
+
+## Contents
+
+[Why](#why) · [What you see](#what-you-see) · [How it works](#how-it-works) · [The risk engine](#the-risk-engine) · [Does it work?](#does-it-work) · [Install](#install) · [Develop](#develop) · [Known Limitations / Future Work](#known-limitations--future-work) · [References](#references) · [Layout](#project-layout)
+
+## Why
+
+Code review is a large, ongoing investment of developer time [[1]](#references) [[2]](#references), and a pull request often mixes the hunks that change behavior with renames, reformatting, generated files and docs. Predicting which *changes* are risky is an established research direction, usually with learned models [[3]](#references). This project takes a deliberately simple route instead: about a dozen transparent heuristics, each tied to real fixes in real pull requests, so a reviewer can read *why* a hunk was flagged and disagree with it.
+
+## What you see
+
+<div align="center">
+<img src="docs/img/live-dark.png" alt="A high-risk hunk on a live pull request: the summary bar above shows 3 high, 7 medium and 41 low out of 51 hunks, and the hunk has a red left edge, a HIGH badge and an Explain button." width="880">
+</div>
+
+- **A colored edge and a `HIGH` / `MEDIUM` badge** on every flagged hunk. Hover a badge for the reason.
+- **Safe hunks are left alone.** Reformatting, renames, comments, docs, generated and vendored files score low and get no marking at all.
+- **A sticky summary bar** with counts, a proportional risk meter and one-click jumps to each high-risk hunk (two high hunks in one file read `context.rs (1/2)` and `(2/2)`).
+- **A switch** (and the toolbar icon) to turn highlighting off and on.
+- **An optional "Explain" button** on high-risk hunks asks Claude for a one-sentence reason. Nothing leaves your browser unless you click it.
+
+It follows GitHub's theme (light, dark, high-contrast) because every color comes from GitHub's own Primer CSS variables [[11]](#references). The screenshot above is a live pull request: 3 high, 7 medium and 41 low out of 51 hunks.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A["GitHub PR<br/>Files changed tab"] -->|"MutationObserver"| B["content.js<br/>find hunks, read lines"]
-    B -->|"added + removed lines"| C["risk-engine.js<br/>assessHunk()"]
-    C -->|"level + reason"| D["Badges, edge stripes,<br/>summary bar"]
-    D -.->|"click Explain"| E["background.js"]
-    E -.-> F[("Anthropic API")]
-```
+<div align="center">
+<img src="docs/img/architecture.svg" alt="Architecture: GitHub PR page to content.js to risk-engine.js to badges and the summary bar, with an optional dashed branch from Explain through background.js to the Anthropic API." width="900">
+</div>
 
-`risk-engine.js` knows nothing about the DOM. It takes one hunk and returns `{ level, reason }`, which is why it is unit-testable in plain Node. `content.js` handles everything GitHub-specific, for both GitHub's classic diff markup and its newer React layout (`/changes`).
+`risk-engine.js` knows nothing about the DOM: it takes one hunk and returns `{ level, reason }`, which is why it is unit-testable in plain Node. `content.js` does everything GitHub-specific, for both GitHub's classic diff markup and its newer React layout (`/changes`), and re-scans with a debounced `MutationObserver` [[12]](#references) as GitHub lazy-loads files. The optional Explain call is made from a background service worker, because a content script's `fetch` is subject to GitHub's page CSP [[13]](#references).
 
-### The risk engine
+## The risk engine
 
-```mermaid
-flowchart TD
-    H["One hunk:<br/>file path + added lines + removed lines"] --> S{"Provably safe?"}
-    S -->|"generated or vendored file,<br/>formatting only, comments only,<br/>pure rename"| L["LOW"]
-    S -->|"no"| R["Run the risk detectors"]
-    R --> Q{"Any signal?"}
-    Q -->|"yes"| W["Highest severity wins:<br/>HIGH or MEDIUM, plus the reason"]
-    Q -->|"no"| Z{"Over 40 lines of code?"}
-    Z -->|"yes"| M["MEDIUM"]
-    Z -->|"no"| L
-```
+<div align="center">
+<img src="docs/img/engine.svg" alt="The risk engine: a hunk is checked for provably safe transforms first (low), then risk detectors vote and the highest severity wins; with no signal a hunk over 40 lines is medium. A side panel lists the high and medium detectors with the weakness class each maps to." width="900">
+</div>
 
-Safe-transform checks run **first**, so renaming a variable called `password` is still low risk. Formatting-only includes whitespace, trailing commas, and quote style (but not when the line interpolates, since `"$x"` and `'$x'` differ in shell).
+Safe-transform checks run **first**, so renaming a variable called `password` is still low risk. The detectors cover weakness classes that real fixes in the calibration set exercise: SQL built by concatenation (CWE-89 [[5]](#references)), off-by-one bounds (CWE-193 [[6]](#references)), removed locks and added synchronization (CWE-362 [[7]](#references)), unlocked check-then-act (CWE-367 [[8]](#references)), and missing or bypassed authorization and CSRF checks (CWE-862, CWE-639, CWE-352 [[9]](#references)).
 
-| Signal | Level | Notes |
-|---|---|---|
-| SQL built by string concatenation | High | verb + clause + concatenation within a few lines |
-| Off-by-one shape: operator swap (`..` to `..=`), literal shifted by 1, or a `± 1` term added or removed from a bound/index expression | High | version-shaped numbers are ignored |
-| `try`/`catch`/`except` count decreased | High | a re-indented try/catch doesn't count |
-| Removed synchronization (lock, mutex, atomic, `synchronized`) | High | swapping one primitive for another nets out |
-| Security keywords (`password`, `jwt`, `csrf`, `authorization`, ...) in source code | High | matches inside `verify_password` / `checkPassword`; **Medium** inside test files |
-| Added locking or atomicity | Medium | most race fixes add synchronization |
-| New check-then-act on a shared container, in concurrent code, with no lock | Medium | deliberately narrow |
-| Weakened or removed test assertion, or a newly skipped test | Medium | test files only |
-| Conditional branch removed | Medium | High if it also drops a `return`/`raise`, or 3+ branches |
-| Function signature changed | Medium | catches a single added default value |
-| Large hunk with no other signal | Medium | fallback |
+A few design rules that came from reading real output rather than from theory:
 
-Documentation files (`*.md`, `CHANGELOG`, `docs/`, ...) skip the security-keyword and boundary detectors and the large-hunk fallback, since prose that *describes* an authorization fix isn't one.
+- **Narrow keyword lists.** `admin`, `token` and `auth*` flagged every hunk of `django.contrib.admin`. Keywords now match as whole words *inside* identifiers (`verify_password`, `checkPassword`) but not as fragments (`secretary`).
+- **Prose never raises a security flag.** A CHANGELOG line that *describes* an authorization fix isn't one. Version bumps like `"0.16.2"` to `"0.16.3"` are ignored by the off-by-one detector.
+- **Formatting-only includes quote style**, unless the line interpolates (`"$x"` and `'$x'` differ in shell).
+- **Similarity** between an old and new line, used to spot a one-token edit, is the Sørensen–Dice coefficient over character bigrams [[4]](#references), not a full diff.
+- **Path rules** for generated, vendored and documentation files are adapted from GitHub's own [linguist](https://github.com/github-linguist/linguist) [[10]](#references).
+
+## Does it work?
+
+<div align="center">
+<img src="docs/img/results.svg" alt="Measured on 42 real merged PRs: real fixes flagged rose from 55 of 84 to 68 of 84; non-fix hunks flagged high fell from 12 to 6." width="900">
+</div>
+
+The engine is calibrated and regression-tested on **42 real merged pull requests** from open-source repositories, across nine categories (auth and security, off-by-one, race condition, weakened test, refactor, dead-code removal, signature change, dependency bump, feature). [`metadata.json`](test/fixtures/real-prs/metadata.json) records which hunk is the actual fix in each, which makes recall measurable, and [`test/fix-recall.test.js`](test/fix-recall.test.js) ratchets it so it cannot silently regress. The fixture list and the story behind each PR are in [test/fixtures/real-prs](test/fixtures/real-prs/README.md).
+
+What moved the numbers, each found by reading real output hunk by hunk:
+
+| Change | Evidence |
+|---|---|
+| Match keywords inside `snake_case` / `camelCase` identifiers (`\b` treats `_` as a word character, so `verify_password` never matched) | missing-authorization fix: 0 of 2 hunks flagged to 2 of 2 |
+| Adding a lock is a medium flag (most race fixes *add* synchronization) | race fixtures `spp` 0 of 2 to 2 of 2, `pdns` 6 of 11 to 10 of 11 |
+| A security word inside a **test** file is medium, not high | passkey-kit#4 false alarms at high: 5 to 0, its 3 real fix hunks stay high |
+| Quote-only changes (`"x"` to `'x'`) count as formatting, unless the line interpolates | unit-tested, including the shell `"$x"` counterexample. A hunk that *also* drops redundant parentheses is not provably formatting-only, so a Prettier PR can still get a few flags (passcore_prettier went from 2 to 3 high) |
+
+The unit and real-PR suites run in CI. The end-to-end suite loads this folder as a real unpacked extension in Chromium and checks the badges and summary counts against the engine on live GitHub pages (68 of 68 passing on the classic layout).
 
 ## Install
 
-No build step and no runtime dependencies.
+No build step, no runtime dependencies.
 
 1. Open `chrome://extensions` and turn on **Developer mode**.
-2. Click **Load unpacked** and choose this folder.
+2. Click **Load unpacked** and choose this folder (the one containing `manifest.json`).
 3. Open any pull request's **Files changed** tab.
 
-The toolbar icon toggles highlighting on and off (an `OFF` badge shows when it's disabled). The first time you click **Explain**, it asks for an Anthropic API key, which is stored only in `chrome.storage.local` and sent only to `api.anthropic.com`.
+The toolbar icon toggles highlighting (an `OFF` badge shows when it's disabled). The first time you click **Explain**, it asks for an Anthropic API key [[14]](#references), stored only in `chrome.storage.local` and sent only to `api.anthropic.com`. Everything else works without one.
 
 ## Develop
 
 ```bash
-npm test          # unit, real-PR and fixture-metadata tests (Node's built-in runner, no install needed)
-npm run icons     # regenerate icons/ (dependency-free PNG encoder)
-python3 -m http.server 8934
+npm test                      # unit, real-PR and fixture-metadata tests (Node's built-in runner, no install)
+npm run icons                 # regenerate icons/ (dependency-free PNG encoder)
+python3 -m http.server 8934   # then open the fixture pages below
 ```
 
-With the server running, open these pages. Each runs the **real** `src/` files and prints PASS or FAIL:
-
-| Page | Checks |
+| Page (served by the command above) | Checks |
 |---|---|
-| `/test/dom/pull/999/changes/new-ui-fixture.html` | 22 checks against GitHub's React markup: classification, summary bar, Explain, toggle, remount and tab-switch recovery, no self-triggering loop. Add `?theme=dark` for dark mode. |
-| `/test/dom/pull/999/files/self-trigger-regression.html` | Classic markup, plus the mutation-observer loop guard |
-| `/test/perf/synthetic-large-diff.html` | 150 files / 450 hunks scan timing |
+| `/test/dom/pull/999/changes/new-ui-fixture.html` | 23 checks against GitHub's React markup: classification, summary bar, Explain, toggle, remount and tab-switch recovery, no self-triggering loop. Add `?theme=dark`. |
+| `/test/dom/pull/999/files/self-trigger-regression.html` | Classic markup, plus the observer-loop guard |
+| `/test/perf/synthetic-large-diff.html` | 150 files, 450 hunks, scan timing |
 
-### End-to-end tests (Playwright)
-
-The e2e suite loads this folder as a real unpacked extension in Chromium and runs it on the live "Files changed" page of every PR behind `test/fixtures/real-prs/`, checking that the summary bar and badges match what the engine gives for each fixture. It needs network access to github.com, so it is separate from `npm test`.
+**End-to-end (Playwright [[16]](#references)):** loads this folder as an unpacked extension and runs it on the live "Files changed" page of every PR behind the fixtures. It needs network access, so it is separate from `npm test`.
 
 ```bash
-npm install
-npx playwright install chromium
+npm install && npx playwright install chromium
 npm run test:e2e
 ```
 
-Signed out, GitHub serves the **classic** UI; the React UI is only served to signed-in sessions. To run against it, sign in once in the window this opens (you type your own credentials; cookies are saved to the gitignored `e2e/.auth/`):
+Signed out, GitHub serves the classic UI; the React UI is only served to signed-in sessions. To run against it, sign in once in the window this opens (you type your own credentials; cookies are saved to the gitignored `e2e/.auth/`): `npm run test:e2e:login`.
+
+**Re-record the demo** (live network, Playwright's bundled ffmpeg, and `pip install pillow`):
 
 ```bash
-npm run test:e2e:login
+node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 ```
-
-## How well do the heuristics work?
-
-They are calibrated and regression-tested on **42 real merged PRs** from open-source repos (no toy examples), described in [test/fixtures/real-prs](test/fixtures/real-prs/README.md). [`metadata.json`](test/fixtures/real-prs/metadata.json) records which hunk is the actual fix in each PR, which makes this measurable. [`test/fix-recall.test.js`](test/fix-recall.test.js) is a ratchet on it:
-
-| | Fix hunks flagged | Non-fix hunks flagged **high** |
-|---|---|---|
-| Before this change | 55 / 84 | 12 |
-| Now | **68 / 84** | **6** |
-
-What moved the numbers, each found by reading real output hunk by hunk:
-
-- **Identifiers.** `\bpassword\b` never matched `verify_password` or `checkPassword`, because `_` counts as a word character. Missing-authorization and IDOR fixes were invisible. Now matched, in snake_case and camelCase.
-- **Race fixes add locks.** Most fixes *add* synchronization, which the engine ignored. Now medium (adding a lock is usually right, but it changes what can interleave).
-- **Test files.** A security word in a test is a medium nudge, not a red flag. This took passkey-kit#4 (an auth-bypass fix) from 5 high-noise hunks to 0 while keeping its 3 real fix hunks.
-- **Quote style.** Prettier's `"x"` to `'x'` is formatting, unless the line interpolates.
-
-Earlier review passes, also on real PRs: `± 1` off-by-one fixes (mglet-base#226), CHANGELOG prose and version bumps burying a real fix (passkey-kit#4), and keyword lists that were too broad (`admin`, `token`, `auth*` flagged all of `django.contrib.admin`).
 
 ## Known Limitations / Future Work
 
-- **Heuristics, not parsing.** Regex and text matching can be fooled by a keyword in a string or comment. Swapping in a real AST (e.g. tree-sitter) is the natural v2.
+- **Heuristics, not parsing.** Regex and text matching can be fooled by a keyword in a string or comment. Swapping in a real syntax tree (e.g. tree-sitter [[17]](#references)) is the natural v2.
 - **16 of 84 real-fix hunks are still missed.** Examples: a lookup moved *inside* an existing lock (nats-server#8647), a CSRF cookie-prefix rename, and some thread-pool races in C. Check-then-act is only caught in code that visibly runs concurrently.
-- **Narrow keyword lists on purpose.** Broader ones (`admin`, `token`, `auth*`) produced absurd false positives on real PRs. The cost is missing variants like `pwd`.
-- **Added locking is a medium nudge, not proof of a fix.** It fires on any hunk that adds a lock, including ordinary new concurrent code.
-- **GitHub changes its DOM.** It did mid-project: `/files` became `/changes` with a React rewrite. Both layouts are supported, with selectors documented in [docs/github-diff-dom.md](docs/github-diff-dom.md), but expect to re-check them occasionally.
-- **Not yet verified:** the React UI against the e2e suite (signed out, GitHub serves the classic UI, which is what has been run: 68/68 passing), so its lazy-loading on very large PRs is untested. Run `npm run test:e2e:login` once, then `npm run test:e2e`. "Explain" has also only been tested with a mocked reply, not the live API.
+- **Narrow keyword lists on purpose.** Broader ones produced absurd false positives on real PRs; the cost is missing variants like `pwd`.
+- **Added locking is a nudge, not proof of a fix.** It fires on any hunk that adds a lock, including ordinary new concurrent code.
+- **GitHub changes its DOM.** It did mid-project: `/files` became `/changes` with a React rewrite. Both are supported, with selectors documented in [docs/github-diff-dom.md](docs/github-diff-dom.md), but expect to re-check them occasionally.
+- **Not yet verified:** the e2e suite against the React UI (signed out, GitHub serves the classic UI, which is what has run), so lazy-loading on very large PRs there is untested. And "Explain" has only been tested with a mocked reply, not the live API.
 - github.com only (no Enterprise domains). The sticky bar can overlap GitHub's own sticky headers slightly while scrolling.
+
+## References
+
+**Why review attention matters, and risk at the change level**
+
+1. A. Bacchelli and C. Bird. *Expectations, Outcomes, and Challenges of Modern Code Review.* ICSE 2013. [doi:10.1109/ICSE.2013.6606617](https://doi.org/10.1109/ICSE.2013.6606617)
+2. C. Sadowski, E. Söderberg, L. Church, M. Sipko and A. Bacchelli. *Modern Code Review: A Case Study at Google.* ICSE-SEIP 2018. [doi:10.1145/3183519.3183525](https://doi.org/10.1145/3183519.3183525)
+3. Y. Kamei, E. Shihab, B. Adams, A. E. Hassan et al. *A Large-Scale Empirical Study of Just-in-Time Quality Assurance.* IEEE TSE 2013. [doi:10.1109/TSE.2012.70](https://doi.org/10.1109/TSE.2012.70)
+4. L. R. Dice. *Measures of the Amount of Ecologic Association Between Species.* Ecology 26(3), 1945. [doi:10.2307/1932409](https://doi.org/10.2307/1932409) (the bigram similarity used to pair edited lines)
+
+**Weakness classes the detectors target**
+
+5. [CWE-89](https://cwe.mitre.org/data/definitions/89.html) SQL injection · see also [OWASP Top 10](https://owasp.org/Top10/)
+6. [CWE-193](https://cwe.mitre.org/data/definitions/193.html) Off-by-one error
+7. [CWE-362](https://cwe.mitre.org/data/definitions/362.html) Race condition
+8. [CWE-367](https://cwe.mitre.org/data/definitions/367.html) Time-of-check time-of-use
+9. [CWE-862](https://cwe.mitre.org/data/definitions/862.html) Missing authorization · [CWE-639](https://cwe.mitre.org/data/definitions/639.html) Authorization bypass via user-controlled key (IDOR) · [CWE-352](https://cwe.mitre.org/data/definitions/352.html) Cross-site request forgery
+
+**Platform, tools and data**
+
+10. [github-linguist/linguist](https://github.com/github-linguist/linguist): GitHub's own generated, vendored and documentation path rules, which the engine's file classification is adapted from.
+11. [Primer](https://primer.style): GitHub's design system, whose CSS variables the extension's colors use.
+12. MDN: [MutationObserver](https://developer.mozilla.org/en-US/docs/Web/API/MutationObserver).
+13. Chrome for Developers: [extensions](https://developer.chrome.com/docs/extensions/develop), [content scripts](https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts) and the [action API](https://developer.chrome.com/docs/extensions/reference/api/action) (toolbar toggle).
+14. Anthropic: [Messages API](https://docs.anthropic.com/en/api/messages) (the optional Explain call).
+15. Node.js: [test runner](https://nodejs.org/api/test.html) (what `npm test` uses).
+16. Playwright: [testing Chrome extensions](https://playwright.dev/docs/chrome-extensions) (the e2e suite and the demo recording).
+17. [tree-sitter](https://tree-sitter.github.io/tree-sitter/): the parser library a v2 could build on. GNU diffutils: [unified diff format](https://www.gnu.org/software/diffutils/manual/html_node/Unified-Format.html), which the test fixtures use.
+18. The 42 real pull requests behind the calibration set, with source links and what each one tests: [test/fixtures/real-prs/README.md](test/fixtures/real-prs/README.md).
 
 ## Project layout
 
@@ -139,8 +172,9 @@ src/risk-engine.js       The heuristics: pure, DOM-free, unit-tested
 src/content.js           Finds hunks (classic + React DOM), draws badges and the summary bar
 src/background.js        Optional Anthropic call (CSP-safe) + toolbar toggle
 icons/                   Generated by scripts/make-icons.js
-docs/                    github-diff-dom.md (selector notes), img/ (screenshots)
+docs/img/                Demo recording, live screenshot, diagrams
+docs/github-diff-dom.md  Selector notes for GitHub's two diff layouts
 test/                    Unit tests, 42 real-PR fixtures + metadata, DOM fixture pages, perf harness
 e2e/                     Playwright: the real extension on live GitHub PRs
-scripts/                 fetch-fixtures.js (collector), make-icons.js
+scripts/                 record-demo.js, make-gif.py, make-icons.js, fetch-fixtures.js
 ```

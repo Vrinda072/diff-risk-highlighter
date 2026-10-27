@@ -118,6 +118,12 @@
       del(241, '    private static final int PAGE = 20;') +
       add(241, '    private static final int PAGE_SIZE = 20;') +
       ctx(242, 242, '}') +
+      boundary('@@ -300,6 +300,3 @@ public class UsersGroupsData {') +
+      ctx(300, 300, '    public void refresh() {') +
+      del(301, '        try {') +
+      del(302, '            cache.reload();') +
+      del(303, '        } catch (IOException e) { log.warn("reload failed", e); }') +
+      ctx(304, 301, '    }') +
       boundary('@@ -250,0 +250,0 @@ trailing expand-down row, no changes')),
 
     file('src/core/fieldhelper_mod.F90', '+1 −1',
@@ -203,9 +209,11 @@
     const bar = () => document.getElementById('driskh-summary-bar');
     const pill = (l) => Number(bar()?.querySelector(`.driskh-pill--${l} b`)?.textContent);
     check('summary bar exists, inserted before the diffs list', bar() && bar().nextElementSibling?.dataset.testid === 'progressive-diffs-list');
-    check('summary counts add up to hunks scanned', pill('high') + pill('medium') + pill('low') === total && total === 7, `${pill('high')}/${pill('medium')}/${pill('low')} of ${total}`);
+    check('summary counts add up to hunks scanned', pill('high') + pill('medium') + pill('low') === total && total === 8, `${pill('high')}/${pill('medium')}/${pill('low')} of ${total}`);
     check('risk meter rendered', bar()?.querySelectorAll('.driskh-meter-seg').length >= 2);
     check('jump chips only for high hunks', bar()?.querySelectorAll('.driskh-jump-chip').length === pill('high'));
+    const chipLabels = [...bar().querySelectorAll('.driskh-jump-chip')].map((c) => c.textContent.trim());
+    check('REGRESSION: two high hunks in one file get distinct chip labels', new Set(chipLabels).size === chipLabels.length && chipLabels.some((l) => /UsersGroupsData\.java \(1\/2\)/.test(l)) && chipLabels.some((l) => /UsersGroupsData\.java \(2\/2\)/.test(l)), JSON.stringify(chipLabels));
     const ids = [...document.querySelectorAll('tr[id^="driskh-hunk-"]')].map((r) => r.id);
     check('hunk ids are unique', new Set(ids).size === ids.length && ids.length > 0);
     check('badge is inside the hunk header flex row', document.querySelector('.driskh-badge')?.parentElement.classList.contains('d-flex'));
