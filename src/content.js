@@ -300,6 +300,17 @@
     });
 
     const MAX_VISIBLE_LINKS = 8;
+    // Two high hunks in one file would otherwise read identically ("context.rs",
+    // "context.rs"), so repeats get a position suffix: "context.rs (1/2)".
+    const labelTotals = {};
+    highLinks.forEach((l) => { labelTotals[l.label] = (labelTotals[l.label] || 0) + 1; });
+    const labelSeen = {};
+    highLinks.forEach((l) => {
+      if (labelTotals[l.label] > 1) {
+        labelSeen[l.label] = (labelSeen[l.label] || 0) + 1;
+        l.label = `${l.label} (${labelSeen[l.label]}/${labelTotals[l.label]})`;
+      }
+    });
     const visibleLinks = highLinks.slice(0, MAX_VISIBLE_LINKS);
     const overflow = highLinks.length - visibleLinks.length;
     const total = headerRows.length;
