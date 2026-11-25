@@ -129,7 +129,7 @@
       for (let i = 0; i < types.length && type === undefined; i++) {
         if (m.groups[types[i]] !== undefined) type = types[i];
       }
-      tokens.push({ type, value, line });
+      tokens.push({ type, value, line, at: m.index });
       for (let i = value.indexOf('\n'); i !== -1; i = value.indexOf('\n', i + 1)) line++;
     }
     return tokens;

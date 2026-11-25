@@ -22,7 +22,7 @@ A Chrome extension that reads GitHub's **Files changed** tab and flags risky hun
 
 | Question | Result | Measured on |
 |---|---|---|
-| Are the real fix hunks flagged? | 68 of 84 (81%) medium or high | **development set**: the 42 PRs the heuristics were tuned on |
+| Are the real fix hunks flagged? | 71 of 84 (85%) medium or high | **development set**: the 42 PRs the heuristics were tuned on |
 | What else gets flagged there? | 33 of 289 other hunks, 6 of them high | same development set |
 | Did the November false-alarm fixes help? | HIGH flags 147 to 92, no change on any fixture | 33 audit PRs that motivated the fixes (so also development data) |
 | Does it freeze huge PRs? | engine time 21.9 s to 0.3 s; longest page freeze about 2 s to under 0.6 s | [a real 287-file PR](#speed-on-very-large-pull-requests) |
@@ -108,7 +108,7 @@ A few design rules that came from reading real output rather than from theory:
 ## Does it work?
 
 <div align="center">
-<img src="docs/img/results.svg" alt="Measured on 42 real merged PRs: real fixes flagged rose from 55 of 84 to 68 of 84; non-fix hunks flagged high fell from 12 to 6." width="900">
+<img src="docs/img/results.svg" alt="Measured on 42 real merged PRs: real fixes flagged rose from 55 of 84 to 71 of 84; non-fix hunks flagged high fell from 12 to 6." width="900">
 </div>
 
 The engine is calibrated and regression-tested on **42 real merged pull requests** from open-source repositories, across nine categories (auth and security, off-by-one, race condition, weakened test, refactor, dead-code removal, signature change, dependency bump, feature). [`metadata.json`](test/fixtures/real-prs/metadata.json) records which hunk is the actual fix in each, which makes recall measurable, and [`test/fix-recall.test.js`](test/fix-recall.test.js) ratchets it so it cannot silently regress. The fixture list and the story behind each PR are in [test/fixtures/real-prs](test/fixtures/real-prs/README.md). [docs/ablation.md](docs/ablation.md) switches each detector off in turn: signature changes, edited conditions and the security and concurrency detectors carry most of the fix hunks, while the large-hunk fallback and the security-word-in-a-test nudge pick fix hunks no better than chance. Whether those two stay is a question [fixed in advance](eval/README.md#questions-fixed-before-labelling) for the held-out labels.
@@ -179,13 +179,13 @@ node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 ## Known Limitations / Future Work
 
 - **Heuristics, not parsing.** Regex and text matching can be fooled by a keyword in a string or comment. Swapping in a real syntax tree (e.g. tree-sitter [[17]](#references)) is the natural v2.
-- **16 of 84 real-fix hunks in the development set are still missed** (7 race-condition, 5 auth and security, 4 signature-change). Examples: a lookup moved *inside* an existing lock (nats-server#8647), a CSRF cookie-prefix rename, and some thread-pool races in C. Check-then-act is only caught in code that visibly runs concurrently.
+- **13 of 84 real-fix hunks in the development set are still missed** (7 race-condition, 5 auth and security, 1 signature-change). Examples: a lookup moved *inside* an existing lock (nats-server#8647), a CSRF cookie-prefix rename, and some thread-pool races in C. Check-then-act is only caught in code that visibly runs concurrently.
 - **Misses seen in the audit:** a heap overflow fixed by removing a `min()` clamp inside a `calloc` size ([X11Libre/xserver#4208](https://github.com/X11Libre/xserver/pull/4208)); no memory-size heuristic exists, and one example is too little to calibrate one. A data race "fixed" with a sanitizer suppression ([redis/redis#16350](https://github.com/redis/redis/pull/16350)) is out of reach of text matching.
 - **"Large hunk" says little.** It was 24% of all flags in the audit, mostly new code. It is unchanged until the held-out "needs close review" labels can show whether those flags help.
 - **Reformatting that also edits code** (clang-format that moves includes or adds namespace comments next to real changes) can still be flagged. Whitespace, line wrapping and comment rewrapping are recognised; reordered imports are not, since order can matter.
 - **The shortcuts read lines, not syntax trees.** A hunk that starts in the middle of a multi-line string or comment is judged without knowing that. A whitespace-only change inside JSX text would count as formatting.
 - **Very large pages:** the extension still rescans a huge PR while GitHub streams it in (about 7 s of scanning across the 198-diff load above, of which the engine is 0.2 s). Rescanning only changed files is the next speed step.
-- **Signature changes** are found by matching declaration lines, so multi-line parameter lists slip through. A syntax-tree comparison for one language is the planned first structural detector, to be measured against the held-out set.
+- **Signature changes** are compared parameter by parameter, but only for declarations written with `def`, `function`, `fn` or `func`, and only when the whole parameter list is among the changed lines. Java, C and C++ methods, arrow functions, and a single parameter added inside an unchanged declaration are not seen. This is bracket matching over tokens, not a syntax tree: it needed no dependency. It was designed from three missed development fixtures (68 to 71 of 84), so that gain says nothing about new code yet.
 - **Narrow keyword lists on purpose.** Broader ones produced absurd false positives on real PRs; the cost is missing variants like `pwd`.
 - **Added locking is a nudge, not proof of a fix.** It fires on any hunk that adds a lock, including ordinary new concurrent code.
 - **GitHub changes its DOM.** It did mid-project: `/files` became `/changes` with a React rewrite. Both are supported, with selectors documented in [docs/github-diff-dom.md](docs/github-diff-dom.md), but expect to re-check them occasionally.

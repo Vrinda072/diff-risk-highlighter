@@ -42,6 +42,8 @@ declare namespace Driskh {
     type: string;
     value: string;
     line: number;
+    /** Offset in the lexed text. */
+    at?: number;
   }
 
   interface Assessment {

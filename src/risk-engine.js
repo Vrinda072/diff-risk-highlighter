@@ -133,10 +133,10 @@
     {
       id: 'signature',
       run: (/** @type {Driskh.HunkContext} */ h) => {
-        const change = detectSignatureChange(h.removedLines, h.addedLines);
-        return change
-          ? finding(LEVELS.MEDIUM, `Function signature changed: ${change.name}(${change.oldParams}) → ${change.name}(${change.newParams}) — check all call sites still pass compatible arguments.`)
-          : null;
+        const change = detectSignatureChange(h.removedLines, h.addedLines, h.filePath);
+        if (!change) return null;
+        const more = change.changes.length > 2 ? `; and ${change.changes.length - 2} more` : '';
+        return finding(LEVELS.MEDIUM, `Function signature changed: ${change.name} — ${change.changes.slice(0, 2).join('; ')}${more}. Check all call sites.`);
       },
     },
   ];
