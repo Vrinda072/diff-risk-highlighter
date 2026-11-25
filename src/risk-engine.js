@@ -212,7 +212,7 @@
   // ---------------------------------------------------------------------
   // Safe-transform detectors: hunks that are provably behavior-preserving,
   // so they short-circuit to LOW before any keyword scan runs. (A pure
-  // rename of a variable called `password` is still safe to skim — the
+  // rename of a variable called `password` still scores low — the
   // logic didn't change just because the word is scary.)
   // ---------------------------------------------------------------------
 

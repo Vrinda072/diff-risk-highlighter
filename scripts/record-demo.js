@@ -129,10 +129,24 @@ async function run() {
   for (let i = 0; i < Math.min(chipCount, 2); i++) {
     await glide(page, chips.nth(i));
     await chips.nth(i).click();
-    await sleep(3000);
+    await sleep(2600);
+    if (i === 0) {
+      const badge = page.locator('.driskh-badge--high').first();
+      await caption(page, 'Press a badge to see why, and say if it helped');
+      await glide(page, badge);
+      await badge.click();
+      await sleep(1500);
+      const useful = page.locator('.driskh-reason').getByRole('button', { name: 'Useful', exact: true });
+      await glide(page, useful);
+      await useful.click();
+      await sleep(1600);
+      await badge.click();
+      await caption(page, 'Jump straight to the high-risk hunks');
+      await sleep(500);
+    }
   }
 
-  await caption(page, 'Docs, renames and reformatting stay untouched');
+  await caption(page, 'Docs, renames and reformatting stay unmarked');
   const prose = page.locator('.file[data-tagsearch-path="CHANGELOG.md"]').first();
   if (await prose.count()) {
     await prose.scrollIntoViewIfNeeded();
