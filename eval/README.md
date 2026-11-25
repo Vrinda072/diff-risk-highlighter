@@ -10,10 +10,14 @@ about new code. This folder measures new code.
 
 ## What is sealed
 
-`heldout.json` lists 60 merged pull requests (40 bug fixes, 20 ordinary
-changes) from 60 repositories, with each diff's SHA-256.
+`heldout.json` lists 100 merged pull requests (67 bug fixes, 33 ordinary
+changes) from 100 repositories, with each diff's SHA-256.
 
-- Popular, active repositories (1,000+ stars), several languages.
+- Popular, active repositories (1,000+ stars): TypeScript, JavaScript, Python,
+  Go, Rust, Java, C++ and C#. **No Ruby or PHP** — the quotas filled before the
+  collector reached them.
+- Collected in two batches the same day (60, then 40 more), both before the
+  engine changed from the baseline. The pilot was drawn from the first batch.
 - **Merged after the audit** that inspected development data, and from no
   repository in `seen-repos.json` (every repo that appeared while building or
   auditing the engine).
@@ -23,9 +27,10 @@ changes) from 60 repositories, with each diff's SHA-256.
   Third-party diffs are not committed; `fetch.js` re-downloads and verifies them.
 
 `baseline-1.1.0` is the git tag of the engine as it stood when the set was
-sealed. Changes made afterwards use development data only (the 42 fixtures and
-the 94 PRs from the November 2026 audit, which stopped being held-out the
-moment their errors were read).
+sealed. Changes made afterwards use development data only: the fixtures under
+`test/fixtures/` and the 94 PRs from the November 2026 audit (which stopped
+being held-out the moment their errors were read). No development data comes
+from a repository in the sealed set.
 
 ## Steps
 
@@ -59,4 +64,4 @@ be sealed (`node eval/collect.js --since <date>`, after adding these repos to
 - Bug-fix versus ordinary starts as a guess from the title; the labeller can
   change or exclude it.
 - One day's merges from popular repositories is not all code review.
-- Sixty PRs gives wide intervals. Report them.
+- Even 100 PRs gives wide intervals, and the 12-PR pilot much wider. Report them.

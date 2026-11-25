@@ -2,6 +2,11 @@
 // and prints only counts, so nobody learns what is in the set by running it.
 //
 //   node eval/collect.js --since 2026-11-25
+//   node eval/collect.js --since 2026-11-25 --extend   (grow an unlabelled set)
+//
+// --extend keeps every existing entry and the pilot exactly as they are and
+// appends new repositories until the larger quotas are met. Only do that
+// before anyone has scored the set.
 //
 // Rules: popular, recently active repositories (1,000+ stars) that are not in
 // eval/seen-repos.json; only PRs merged on or after --since; at most one PR
@@ -26,8 +31,9 @@ const SINCE = arg('since');
 if (!SINCE) throw new Error('--since YYYY-MM-DD is required');
 
 const LANGUAGES = ['typescript', 'javascript', 'python', 'go', 'rust', 'java', 'cpp', 'csharp', 'ruby', 'php'];
-const QUOTA = { bugfix: 40, ordinary: 20 };
-const PER_LANGUAGE = { bugfix: 5, ordinary: 3 };
+const EXTEND = process.argv.includes('--extend');
+const QUOTA = EXTEND ? { bugfix: 67, ordinary: 33 } : { bugfix: 40, ordinary: 20 };
+const PER_LANGUAGE = EXTEND ? { bugfix: 10, ordinary: 5 } : { bugfix: 5, ordinary: 3 };
 const PILOT = { bugfix: 8, ordinary: 4 };
 const CODE_FILE = /\.(js|jsx|ts|tsx|mjs|cjs|py|go|rs|java|kt|c|cc|cpp|h|hpp|cs|rb|php|swift|scala)$/i;
 
@@ -72,8 +78,11 @@ function popularRepos(language) {
 function main() {
   const seen = new Set(JSON.parse(fs.readFileSync(path.join(DIR, 'seen-repos.json'), 'utf8')).repos);
   fs.mkdirSync(CACHE, { recursive: true });
-  const picked = [];
-  const used = new Set();
+  const manifestFile = path.join(DIR, 'heldout.json');
+  const previous = EXTEND ? JSON.parse(fs.readFileSync(manifestFile, 'utf8')) : null;
+  const picked = previous ? previous.pullRequests.slice() : [];
+  const kept = picked.length;
+  const used = new Set(picked.map((p) => p.repo.toLowerCase()));
   const count = (kind, language) => picked.filter((p) => p.kind === kind && (!language || p.language === language)).length;
 
   for (const language of LANGUAGES) {
@@ -123,14 +132,16 @@ function main() {
     console.log(`${language.padEnd(11)} bugfix ${count('bugfix')}/${QUOTA.bugfix}  ordinary ${count('ordinary')}/${QUOTA.ordinary}`);
   }
 
-  shuffle(picked);
-  const pilotLeft = { ...PILOT };
-  for (const p of picked) p.pilot = pilotLeft[p.kind] > 0 ? (pilotLeft[p.kind]--, true) : false;
+  const fresh = shuffle(picked.splice(kept));
+  const pilotLeft = previous ? { bugfix: 0, ordinary: 0 } : { ...PILOT };
+  for (const p of fresh) p.pilot = pilotLeft[p.kind] > 0 ? (pilotLeft[p.kind]--, true) : false;
+  picked.push(...fresh);
 
-  fs.writeFileSync(
-    path.join(DIR, 'heldout.json'),
-    JSON.stringify({ sealedOn: new Date().toISOString().slice(0, 10), mergedSince: SINCE, baselineTag: 'baseline-1.1.0', pullRequests: picked }, null, 1) + '\n'
-  );
+  const today = new Date().toISOString().slice(0, 10);
+  const manifest = previous
+    ? { ...previous, extendedOn: today, pullRequests: picked }
+    : { sealedOn: today, mergedSince: SINCE, baselineTag: 'baseline-1.1.0', pullRequests: picked };
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 1) + '\n');
   console.log(`sealed ${picked.length} pull requests (${count('bugfix')} bugfix, ${count('ordinary')} ordinary) from ${new Set(picked.map((p) => p.repo)).size} repositories`);
 }
 
