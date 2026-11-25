@@ -1,18 +1,18 @@
 // Per-language facts: comments, layout rules and a small lexer.
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(require('./text.js'));
   } else {
     const parts = root.DriskhParts || (root.DriskhParts = {});
     parts.language = factory(parts.text);
   }
-})(typeof self !== 'undefined' ? self : this, function (textModule) {
+})(typeof self !== 'undefined' ? self : this, function (/** @type {typeof import('./text.js')} */ textModule) {
   'use strict';
 
   const { MULTI_CHAR_OPERATORS } = textModule;
 
-  const extensions = (list) => new Set(list.split(' '));
+  const extensions = (/** @type {string} */ list) => new Set(list.split(' '));
   // Whitespace between tokens and most line breaks don't matter.
   const FREE_LAYOUT = extensions('js jsx mjs cjs ts tsx mts cts java c h cc cpp cxx hh hpp hxx m mm cs go rs swift kt kts scala dart proto groovy gradle php zig sol json sql');
   // Spacing or line breaks can matter, but leading indentation doesn't.
@@ -24,15 +24,17 @@
   const DASH_COMMENTS = extensions('sql lua hs elm ada');
   const MARKUP_COMMENTS = extensions('html htm xml svg vue svelte md markdown mdx');
 
-  function extensionOf(filePath) {
-    const name = (filePath || '').split('/').pop().toLowerCase();
+  function extensionOf(/** @type {string} */ filePath) {
+    const name = ((filePath || '').split('/').pop() || '').toLowerCase();
     if (name === 'dockerfile' || name === 'makefile') return name;
     const dot = name.lastIndexOf('.');
     return dot === -1 ? '' : name.slice(dot + 1);
   }
 
-  function languageOf(filePath) {
+  /** @returns {Driskh.Language} */
+  function languageOf(/** @type {string} */ filePath) {
     const ext = extensionOf(filePath);
+    /** @type {Driskh.Language['layout']} */
     let layout = 'indented'; // unknown languages: assume indentation and spacing matter
     if (ext === 'py' || ext === 'pyi') layout = 'python';
     else if (FREE_LAYOUT.has(ext)) layout = 'free';
@@ -53,7 +55,7 @@
 
   // Is this whole line a comment? When unsure the answer is no: calling code
   // a comment hides a change, while the reverse only costs a closer look.
-  function isCommentLine(line, lang) {
+  function isCommentLine(/** @type {string} */ line, /** @type {Driskh.Language} */ lang) {
     const t = line.trim();
     if (t === '') return false;
     // Comment-shaped lines that the toolchain executes.
@@ -86,10 +88,11 @@
   // input never compares as equal by accident.
   const lexerCache = new Map();
 
-  function lexerFor(lang) {
+  function lexerFor(/** @type {Driskh.Language} */ lang) {
     if (lexerCache.has(lang.ext)) return lexerCache.get(lang.ext);
+    /** @type {string[]} */
     const parts = [];
-    const add = (type, source) => parts.push(`(?<${type}>${source})`);
+    const add = (/** @type {string} */ type, /** @type {string} */ source) => parts.push(`(?<${type}>${source})`);
     const comments = [];
     if (lang.block) comments.push(String.raw`\/\*[\s\S]*?\*\/`);
     if (lang.slash) comments.push(String.raw`(?<=^|[\s;{}(),])\/\/[^\n]*`);
@@ -108,13 +111,13 @@
     add('newline', String.raw`\n`);
     add('ident', String.raw`[A-Za-z_$\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*`);
     add('number', String.raw`\d[\w.]*`);
-    add('other', MULTI_CHAR_OPERATORS.map((op) => op.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + String.raw`|\S`);
+    add('other', MULTI_CHAR_OPERATORS.map((/** @type {string} */ op) => op.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + String.raw`|\S`);
     const lexer = { re: new RegExp(parts.join('|'), 'gm'), types: parts.map((part) => part.slice(3, part.indexOf('>'))) };
     lexerCache.set(lang.ext, lexer);
     return lexer;
   }
 
-  function lex(text, lang) {
+  function lex(/** @type {string} */ text, /** @type {Driskh.Language} */ lang) {
     const { re, types } = lexerFor(lang);
     re.lastIndex = 0;
     const tokens = [];

@@ -23,7 +23,21 @@
 // No build step: manifest.json lists the files in dependency order, each
 // adds itself to a shared global, and Node tests simply require() them.
 
-(function (root, factory) {
+/**
+ * @typedef {{
+ *   text: typeof import('./engine/text.js'),
+ *   files: typeof import('./engine/files.js'),
+ *   shortcuts: typeof import('./engine/shortcuts.js'),
+ *   boundary: typeof import('./engine/boundary.js'),
+ *   logic: typeof import('./engine/logic.js'),
+ *   security: typeof import('./engine/security.js'),
+ *   tests: typeof import('./engine/tests.js'),
+ *   concurrency: typeof import('./engine/concurrency.js'),
+ *   signature: typeof import('./engine/signature.js'),
+ * }} DriskhEngineParts
+ */
+
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory({
       text: require('./engine/text.js'),
@@ -39,7 +53,7 @@
   } else {
     root.DiffRiskEngine = factory(root.DriskhParts);
   }
-})(typeof self !== 'undefined' ? self : this, function (parts) {
+})(typeof self !== 'undefined' ? self : this, function (/** @type {DriskhEngineParts} */ parts) {
   'use strict';
 
   const { LEVELS, LEVEL_RANK, tokenize, lineSimilarity, pairLines } = parts.text;
@@ -54,9 +68,9 @@
 
   const LARGE_HUNK_LINE_THRESHOLD = 40;
 
-  const finding = (severity, reason) => ({ severity, reason });
+  const finding = (/** @type {Driskh.Level} */ severity, /** @type {string} */ reason) => ({ severity, reason });
 
-  const securityApplies = (h) =>
+  const securityApplies = (/** @type {Driskh.HunkContext} */ h) =>
     !h.isDocumentation &&
     !DEPENDENCY_MANIFEST_RE.test(h.filePath) &&
     detectSecuritySensitive(h.removedLines, h.addedLines);
@@ -65,28 +79,28 @@
   const DETECTORS = [
     {
       id: 'sql',
-      run: (h) =>
+      run: (/** @type {Driskh.HunkContext} */ h) =>
         detectSqlInjectionShape(h.removedLines, h.addedLines, h.filePath)
           ? finding(LEVELS.HIGH, 'Touches SQL query construction via string concatenation — check for injection risk and prefer parameterized queries.')
           : null,
     },
     {
       id: 'boundary',
-      run: (h) => {
+      run: (/** @type {Driskh.HunkContext} */ h) => {
         const reason = h.isDocumentation ? null : detectBoundaryChange(h.removedLines, h.addedLines, h.filePath);
         return reason ? finding(LEVELS.HIGH, reason) : null;
       },
     },
     {
       id: 'error-handling',
-      run: (h) =>
+      run: (/** @type {Driskh.HunkContext} */ h) =>
         detectRemovedErrorHandling(h.removedLines, h.addedLines)
           ? finding(LEVELS.HIGH, 'Removed exception handling (try/catch/except) — confirm the error path is truly unreachable.')
           : null,
     },
     {
       id: 'security',
-      run: (h) =>
+      run: (/** @type {Driskh.HunkContext} */ h) =>
         !isTestFile(h.filePath) && securityApplies(h)
           ? finding(LEVELS.HIGH, 'Touches security-sensitive code (auth/session/crypto/headers) — review carefully even if the change looks small.')
           : null,
@@ -94,15 +108,15 @@
     {
       id: 'condition',
       // With only names swapped, every branch keeps its shape.
-      run: (h) => (h.rename ? null : detectRemovedConditional(h.removedLines, h.addedLines)),
+      run: (/** @type {Driskh.HunkContext} */ h) => (h.rename ? null : detectRemovedConditional(h.removedLines, h.addedLines)),
     },
     {
       id: 'concurrency',
-      run: (h) => (h.isDocumentation ? null : detectConcurrencyRisk(h.removedLines, h.addedLines, h.filePath)),
+      run: (/** @type {Driskh.HunkContext} */ h) => (h.isDocumentation ? null : detectConcurrencyRisk(h.removedLines, h.addedLines, h.filePath)),
     },
     {
       id: 'weakened-test',
-      run: (h) => {
+      run: (/** @type {Driskh.HunkContext} */ h) => {
         const reason = detectWeakenedTest(h.filePath, h.removedLines, h.addedLines);
         return reason ? finding(LEVELS.MEDIUM, reason) : null;
       },
@@ -111,14 +125,14 @@
       // Only a medium nudge in a test, listed after the more specific finding
       // above so that "a test was skipped" wins the tie.
       id: 'security-in-test',
-      run: (h) =>
+      run: (/** @type {Driskh.HunkContext} */ h) =>
         isTestFile(h.filePath) && securityApplies(h)
           ? finding(LEVELS.MEDIUM, 'A test touching security-related behavior — check no assertion was weakened or removed.')
           : null,
     },
     {
       id: 'signature',
-      run: (h) => {
+      run: (/** @type {Driskh.HunkContext} */ h) => {
         const change = detectSignatureChange(h.removedLines, h.addedLines);
         return change
           ? finding(LEVELS.MEDIUM, `Function signature changed: ${change.name}(${change.oldParams}) → ${change.name}(${change.newParams}) — check all call sites still pass compatible arguments.`)
@@ -130,7 +144,7 @@
   const SHORTCUT_IDS = ['generated', 'vendored', 'formatting', 'comments', 'rename'];
   const DETECTOR_IDS = DETECTORS.map((d) => d.id).concat('large-hunk');
 
-  const low = (reason) => ({ level: LEVELS.LOW, reason });
+  const low = (/** @type {string} */ reason) => ({ level: LEVELS.LOW, reason });
 
   /**
    * @param {{filePath?: string, addedLines?: string[], removedLines?: string[]}} hunk

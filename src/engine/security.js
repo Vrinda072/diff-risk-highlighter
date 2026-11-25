@@ -1,13 +1,13 @@
 // SQL built from strings, and security-sensitive keywords.
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(require('./language.js'));
   } else {
     const parts = root.DriskhParts || (root.DriskhParts = {});
     parts.security = factory(parts.language);
   }
-})(typeof self !== 'undefined' ? self : this, function (languageModule) {
+})(typeof self !== 'undefined' ? self : this, function (/** @type {typeof import('./language.js')} */ languageModule) {
   'use strict';
 
   const { isCommentLine, languageOf } = languageModule;
@@ -41,8 +41,8 @@
   // joined with `+`), so this can't require everything on one line. A small
   // sliding window is the middle ground: real query construction sits close
   // together; incidental matches scattered across a large hunk mostly don't.
-  function hasSqlShape(lines, lang) {
-    const code = lines.filter((l) => !IMPORT_LINE_RE.test(l) && !isCommentLine(l, lang));
+  function hasSqlShape(/** @type {string[]} */ lines, /** @type {Driskh.Language} */ lang) {
+    const code = lines.filter((/** @type {string} */ l) => !IMPORT_LINE_RE.test(l) && !isCommentLine(l, lang));
     for (let start = 0; start < code.length; start++) {
       const windowText = code.slice(start, start + SQL_WINDOW_SIZE).join('\n');
       const looksLikeSql =
@@ -52,7 +52,7 @@
     return false;
   }
 
-  function detectSqlInjectionShape(removedLines, addedLines, filePath) {
+  function detectSqlInjectionShape(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines, /** @type {string} */ filePath) {
     const lang = languageOf(filePath);
     return hasSqlShape(removedLines, lang) || hasSqlShape(addedLines, lang);
   }
@@ -74,7 +74,7 @@
   const SECURITY_KEYWORDS_RE =
     /(?<![A-Za-z])(passwords?|passwd|secrets?|jwt|oauth|csrf|xsrf|cors|ssrf|xss|authenticat(?:e|es|ed|ing|ion)|authoriz(?:e|es|ed|ing|ation)|unauthorized|encrypt(?:s|ed|ing|ion)?|decrypt(?:s|ed|ing|ion)?|crypto(?:graph(?:y|ic))?|superuser|privileged?|sanitiz(?:e|es|ed|ing|ation)|content-security-policy|x-content-type-options|set-cookie)(?![A-Za-z])/i;
 
-  function detectSecuritySensitive(removedLines, addedLines) {
+  function detectSecuritySensitive(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines) {
     const joined = [...removedLines, ...addedLines].join('\n').replace(/([a-z0-9])([A-Z])/g, '$1 $2');
     return SECURITY_KEYWORDS_RE.test(joined);
   }

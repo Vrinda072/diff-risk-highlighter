@@ -151,6 +151,7 @@ The toolbar icon toggles highlighting (an `OFF` badge shows when it's disabled).
 ```bash
 npm test                 # unit, real-PR, scoring and speed tests (Node 20+, nothing to install)
 npm install && npx playwright install chromium
+npm run typecheck        # strict TypeScript check of the JSDoc types (after npm ci); nothing is compiled
 npm run test:browser     # offline: fixture pages + the packaged ZIP loaded into Chromium
 npm run package          # dist/diff-risk-highlighter-<version>.zip from an explicit file list
 ```

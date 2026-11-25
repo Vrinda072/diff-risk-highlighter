@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
+    "typecheck": "tsc -p tsconfig.json",
     "test:browser": "playwright test -c playwright.browser.config.js",
     "test:e2e": "playwright test",
     "test:e2e:login": "node e2e/save-github-session.js",
@@ -16,6 +17,9 @@
     "icons": "node scripts/make-icons.js"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0"
+    "@playwright/test": "^1.63.0",
+    "@types/chrome": "^0.3.8",
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3"
   }
 }

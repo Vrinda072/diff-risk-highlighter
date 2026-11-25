@@ -12,7 +12,7 @@
 
 importScripts('explain.js');
 
-async function explainWithPermission(settings, hunk) {
+async function explainWithPermission(/** @type {Driskh.ExplainSettings} */ settings, /** @type {any} */ hunk) {
   const origin = DriskhExplain.originFor(settings);
   if (origin && !(await chrome.permissions.contains({ origins: [origin] }))) {
     return { error: 'no-permission', message: 'Allow access to your Explain provider: open the extension options and press Save.' };
@@ -43,7 +43,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // listens to chrome.storage.onChanged, so every open PR tab updates live.
 const ENABLED_KEY = 'driskhEnabled';
 
-function paintBadge(enabled) {
+function paintBadge(/** @type {boolean} */ enabled) {
   chrome.action.setBadgeText({ text: enabled ? '' : 'OFF' });
   chrome.action.setBadgeBackgroundColor({ color: '#6e7681' });
 }
@@ -57,4 +57,4 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[ENABLED_KEY]) paintBadge(changes[ENABLED_KEY].newValue !== false);
 });
 
-chrome.storage.local.get(ENABLED_KEY).then(({ [ENABLED_KEY]: v = true }) => paintBadge(v));
+chrome.storage.local.get(ENABLED_KEY).then(({ [ENABLED_KEY]: v = true }) => paintBadge(v !== false));

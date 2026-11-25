@@ -1,27 +1,31 @@
 // The three checks that can call a hunk harmless: formatting, comments, rename.
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(require('./text.js'), require('./language.js'));
   } else {
     const parts = root.DriskhParts || (root.DriskhParts = {});
     parts.shortcuts = factory(parts.text, parts.language);
   }
-})(typeof self !== 'undefined' ? self : this, function (textModule, languageModule) {
+})(typeof self !== 'undefined' ? self : this, function (/** @type {typeof import('./text.js')} */ textModule, /** @type {typeof import('./language.js')} */ languageModule) {
   'use strict';
 
   const { isKeyword } = textModule;
   const { isCommentLine, languageOf, lex } = languageModule;
 
+  const indentOf = (/** @type {string} */ line) => line.slice(0, line.length - line.trimStart().length);
+
+  /** @type {Record<string, string>} */
   const OPENERS = { ')': '(', ']': '[', '}': '{' };
 
   // Drops cosmetic trailing commas (see passcore#150 fixture). `(x,)` is
   // kept unless it is a call: in Python and Rust that comma makes a tuple.
-  function dropTrailingCommas(tokens) {
-    const code = tokens.filter((t) => t.type !== 'comment' && t.type !== 'newline');
+  function dropTrailingCommas(/** @type {Driskh.Token[]} */ tokens) {
+    const code = tokens.filter((/** @type {Driskh.Token} */ t) => t.type !== 'comment' && t.type !== 'newline');
     const drop = new Set();
+    /** @type {{open: string, at: number, commas: number}[]} */
     const stack = [];
-    code.forEach((token, i) => {
+    code.forEach((/** @type {Driskh.Token} */ token, /** @type {number} */ i) => {
       const v = token.value;
       if (v === '(' || v === '[' || v === '{') {
         stack.push({ open: v, at: i, commas: 0 });
@@ -37,10 +41,10 @@
         if (!group || group.commas > 1 || isCall) drop.add(previous);
       }
     });
-    return tokens.filter((t) => !drop.has(t));
+    return tokens.filter((/** @type {Driskh.Token} */ t) => !drop.has(t));
   }
 
-  function normalizeQuotes(value) {
+  function normalizeQuotes(/** @type {string} */ value) {
     const m = /^"([^"'$`\\\n]*)"$/.exec(value);
     return m ? `'${m[1]}'` : value;
   }
@@ -50,20 +54,20 @@
   const ENDS_STATEMENT = new Set(['return', 'break', 'continue', 'throw', 'yield']);
 
   // What the code means (as far as layout goes) and what its comments say.
-  function layoutSignature(lines, lang) {
+  function layoutSignature(/** @type {string[]} */ lines, /** @type {Driskh.Language} */ lang) {
     if (lang.layout === 'lines' || lang.layout === 'indented') {
-      const kept = lines.map((l) => (lang.layout === 'lines' ? l.trim() : l.trimEnd())).filter((l) => l.trim() !== '');
+      const kept = lines.map((/** @type {string} */ l) => (lang.layout === 'lines' ? l.trim() : l.trimEnd())).filter((/** @type {string} */ l) => l.trim() !== '');
       return { code: kept.join('\n'), comments: '' };
     }
 
     const tokens = dropTrailingCommas(lex(lines.join('\n'), lang));
     const comments = tokens
-      .filter((t) => t.type === 'comment')
-      .map((t) => t.value.replace(/^(\/\/+|\/\*+|#+|--+)|\*+\/$/g, '').replace(/^\s*\*+(?=\s|$)/gm, ''))
+      .filter((/** @type {Driskh.Token} */ t) => t.type === 'comment')
+      .map((/** @type {Driskh.Token} */ t) => t.value.replace(/^(\/\/+|\/\*+|#+|--+)|\*+\/$/g, '').replace(/^\s*\*+(?=\s|$)/gm, ''))
       .join(' ')
       .replace(/\s+/g, ' ')
       .trim();
-    const text = (t) => (lang.sameQuotes && t.type === 'string' ? normalizeQuotes(t.value) : t.value);
+    const text = (/** @type {Driskh.Token} */ t) => (lang.sameQuotes && t.type === 'string' ? normalizeQuotes(t.value) : t.value);
     const code = [];
 
     if (lang.layout === 'python') {
@@ -78,7 +82,7 @@
           continue;
         }
         if (startOfLine) {
-          code.push('\n' + lines[t.line].match(/^\s*/)[0] + '|');
+          code.push('\n' + indentOf(lines[t.line]) + '|');
           startOfLine = false;
         }
         if (t.value === '(' || t.value === '[' || t.value === '{') depth++;
@@ -87,7 +91,7 @@
         if (t.value !== '\\') code.push(text(t));
       }
     } else {
-      tokens.forEach((t, i) => {
+      tokens.forEach((/** @type {Driskh.Token} */ t, /** @type {number} */ i) => {
         if (t.type === 'comment' || t.type === 'newline') return;
         code.push(text(t));
         const next = tokens[i + 1];
@@ -99,7 +103,7 @@
 
   // 'formatting': only layout differs. 'comments': the code is the same but
   // comment text changed too. null: anything else.
-  function compareLayout(removedLines, addedLines, filePath) {
+  function compareLayout(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines, /** @type {string} */ filePath) {
     if (removedLines.length === 0 || addedLines.length === 0) return null;
     const lang = languageOf(filePath);
     const before = layoutSignature(removedLines, lang);
@@ -108,7 +112,7 @@
     return before.comments === after.comments ? 'formatting' : 'comments';
   }
 
-  function detectFormattingOnly(removedLines, addedLines, filePath) {
+  function detectFormattingOnly(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines, /** @type {string} */ filePath) {
     return compareLayout(removedLines, addedLines, filePath) === 'formatting';
   }
 
@@ -132,7 +136,7 @@
   //     CMakeLists.txt, ...), except under a docs directory.
   // ---------------------------------------------------------------------
 
-  function detectCommentOnly(removedLines, addedLines, filePath) {
+  function detectCommentOnly(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines, /** @type {string} */ filePath) {
     const lang = languageOf(filePath);
     const all = [...removedLines, ...addedLines].filter((l) => l.trim() !== '');
     if (all.length === 0) return false;
@@ -145,7 +149,7 @@
   const PY_CONSTANT_RE = /^([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=(?!=)/;
 
   // The names a line defines, as opposed to merely uses.
-  function declaredNames(line, lang) {
+  function declaredNames(/** @type {string} */ line, /** @type {Driskh.Language} */ lang) {
     const names = new Set(Array.from(line.matchAll(DECLARED_NAME_RE), (m) => m[1]));
     const constant = lang.layout === 'python' && PY_CONSTANT_RE.exec(line);
     if (constant) names.add(constant[1]);
@@ -157,7 +161,8 @@
   // a changed line, so it is a rename. A swap only at places that *use* a
   // name looks the same as calling something else (`canRead` -> `canWrite`),
   // which no reading of the hunk alone can rule out.
-  function describeRename(removedLines, addedLines, filePath) {
+  /** @returns {Driskh.Rename | null} */
+  function describeRename(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines, /** @type {string} */ filePath) {
     if (removedLines.length === 0 || removedLines.length !== addedLines.length) return null;
     const lang = languageOf(filePath);
     const mapping = new Map();
@@ -169,10 +174,10 @@
     for (let line = 0; line < removedLines.length; line++) {
       const removed = removedLines[line];
       const added = addedLines[line];
-      if ((lang.layout === 'python' || lang.layout === 'indented') && removed.match(/^\s*/)[0] !== added.match(/^\s*/)[0]) {
+      if ((lang.layout === 'python' || lang.layout === 'indented') && indentOf(removed) !== indentOf(added)) {
         return null;
       }
-      const code = (l) => lex(l, lang).filter((t) => t.type !== 'comment');
+      const code = (/** @type {string} */ l) => lex(l, lang).filter((/** @type {Driskh.Token} */ t) => t.type !== 'comment');
       const rTokens = code(removed);
       const aTokens = code(added);
       if (rTokens.length !== aTokens.length) return null;
@@ -207,12 +212,12 @@
     if (!strings.every(([from, to]) => mapping.get(from) === to)) return null;
 
     const renames = [...mapping];
-    const declared = removedLines.map((l, i) => [declaredNames(l, lang), declaredNames(addedLines[i], lang)]);
+    const declared = removedLines.map((/** @type {string} */ l, /** @type {number} */ i) => [declaredNames(l, lang), declaredNames(addedLines[i], lang)]);
     const proven = renames.every(([from, to]) => declared.some(([before, after]) => before.has(from) && after.has(to)));
     return { proven, renames };
   }
 
-  function detectPureRename(removedLines, addedLines, filePath) {
+  function detectPureRename(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines, /** @type {string} */ filePath) {
     const rename = describeRename(removedLines, addedLines, filePath);
     return Boolean(rename && rename.proven);
   }

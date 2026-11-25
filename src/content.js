@@ -36,10 +36,10 @@
   let enabled = true; // optimistic default until storage responds, so the
   // very first paint isn't stuck in a disabled state on a slow read
 
-  function setEnabled(next, { persist = true } = {}) {
+  function setEnabled(/** @type {boolean} */ next, { persist = true } = {}) {
     enabled = next;
     document.documentElement.classList.toggle('driskh-disabled', !enabled);
-    const box = document.querySelector(`#${SUMMARY_BAR_ID} .driskh-toggle-input`);
+    const box = /** @type {HTMLInputElement | null} */ (document.querySelector(`#${SUMMARY_BAR_ID} .driskh-toggle-input`));
     if (box) box.checked = enabled; // also reached via the toolbar button, not just the switch
     if (persist && chrome?.storage?.local) {
       chrome.storage.local.set({ [STORAGE_KEY]: enabled });
@@ -62,16 +62,18 @@
   // `hunkCell` is carried on each hunk alongside `headerRow` so markHunk
   // can append a badge/button without needing to know which DOM shape
   // (classic table vs. the newer React grid below) produced this hunk.
-  function extractHunksFromFile(fileEl, table) {
-    const header = fileEl.querySelector('.file-header');
+  function extractHunksFromFile(/** @type {HTMLElement} */ fileEl, /** @type {Element} */ table) {
+    const header = /** @type {HTMLElement | null} */ (fileEl.querySelector('.file-header'));
     const filePath =
       header?.dataset.path || fileEl.dataset.tagsearchPath || '(unknown path)';
 
+    /** @type {Driskh.PageHunk[]} */
     const hunks = [];
+    /** @type {Driskh.PageHunk | null} */
     let current = null;
 
-    for (const row of table.querySelectorAll('tr')) {
-      const hunkCell = row.querySelector('td.blob-code-hunk');
+    for (const row of /** @type {NodeListOf<HTMLElement>} */ (table.querySelectorAll('tr'))) {
+      const hunkCell = /** @type {HTMLElement | null} */ (row.querySelector('td.blob-code-hunk'));
       if (hunkCell) {
         current = { filePath, headerRow: row, hunkCell, rows: [], addedLines: [], removedLines: [] };
         hunks.push(current);
@@ -103,14 +105,16 @@
   // GitHub's expand-up/down button) rather than the <td> directly, so it
   // lays out inline with the existing controls instead of wrapping onto
   // its own line below them.
-  function extractHunksFromNewDiffTable(table, filePath) {
+  function extractHunksFromNewDiffTable(/** @type {Element} */ table, /** @type {string} */ filePath) {
+    /** @type {Driskh.PageHunk[]} */
     const hunks = [];
+    /** @type {Driskh.PageHunk | null} */
     let current = null;
 
-    for (const row of table.querySelectorAll('tr.diff-line-row')) {
-      const hunkTd = row.querySelector('td.diff-hunk-cell');
+    for (const row of /** @type {NodeListOf<HTMLElement>} */ (table.querySelectorAll('tr.diff-line-row'))) {
+      const hunkTd = /** @type {HTMLElement | null} */ (row.querySelector('td.diff-hunk-cell'));
       if (hunkTd) {
-        const hunkCell = hunkTd.querySelector('div.d-flex.flex-row') || hunkTd;
+        const hunkCell = /** @type {HTMLElement} */ (hunkTd.querySelector('div.d-flex.flex-row') || hunkTd);
         current = { filePath, headerRow: row, hunkCell, rows: [], addedLines: [], removedLines: [] };
         hunks.push(current);
         continue;
@@ -136,7 +140,7 @@
 
   let nextHunkId = 0;
 
-  function markHunk(hunk, result) {
+  function markHunk(/** @type {Driskh.PageHunk} */ hunk, /** @type {Driskh.Assessment} */ result) {
     if (hunk.headerRow.dataset.driskhProcessed) return; // idempotent across rescans
     hunk.headerRow.dataset.driskhProcessed = 'true';
     hunk.headerRow.dataset.driskhLevel = result.level;
@@ -193,7 +197,7 @@
   // Gemini, Anthropic) is chosen on the extension's options page.
   const NEEDS_SETUP = new Set(['not-configured', 'no-permission', 'no-api-key', 'invalid-api-key']);
 
-  function showExplainError(button, message) {
+  function showExplainError(/** @type {HTMLButtonElement} */ button, /** @type {string} */ message) {
     let note = button.parentElement && button.parentElement.querySelector('.driskh-explain-error');
     if (!note) {
       note = document.createElement('span');
@@ -203,7 +207,7 @@
     note.textContent = message;
   }
 
-  function requestExplanation(hunk, result, button) {
+  function requestExplanation(/** @type {Driskh.PageHunk} */ hunk, /** @type {Driskh.Assessment} */ result, /** @type {HTMLButtonElement} */ button) {
     button.disabled = true;
     button.textContent = 'Thinking…';
     button.title = '';
@@ -242,7 +246,7 @@
     );
   }
 
-  function resetExplainButton(button, title) {
+  function resetExplainButton(/** @type {HTMLButtonElement} */ button, /** @type {string} */ title) {
     button.disabled = false;
     labelExplainButton(button);
     if (title) button.title = title;
@@ -250,6 +254,7 @@
 
   // The button says which provider will get the hunk, so nobody sends code
   // somewhere without knowing it.
+  /** @type {Record<string, string[]>} */
   const EXPLAIN_LABELS = {
     ollama: ['Explain · local', 'Asks Ollama on your computer. The hunk stays on this machine.'],
     gemini: ['Explain · Gemini', 'Sends this hunk to Google (Gemini).'],
@@ -258,17 +263,18 @@
   };
   let explainProvider = '';
 
-  function labelExplainButton(button) {
+  function labelExplainButton(/** @type {HTMLButtonElement} */ button) {
     const [text, hint] = EXPLAIN_LABELS[explainProvider] || EXPLAIN_LABELS[''];
     button.textContent = text;
     button.title = hint;
     button.setAttribute('aria-label', `${text}. ${hint}`);
   }
 
-  function setExplainProvider(stored) {
+  function setExplainProvider(/** @type {Record<string, any>} */ stored) {
     const settings = (stored && stored.driskhSettings) || {};
     explainProvider = settings.provider || (stored && stored.driskhApiKey ? 'anthropic' : '');
-    document.querySelectorAll('.driskh-explain-btn:not(:disabled)').forEach(labelExplainButton);
+    /** @type {NodeListOf<HTMLButtonElement>} */
+    (document.querySelectorAll('.driskh-explain-btn:not(:disabled)')).forEach((button) => labelExplainButton(button));
   }
 
   // -----------------------------------------------------------------------
@@ -278,7 +284,7 @@
   const FEEDBACK_KEY = 'driskhFeedback';
   const FEEDBACK_LIMIT = 500;
 
-  function toggleReason(hunk, result, badge) {
+  function toggleReason(/** @type {Driskh.PageHunk} */ hunk, /** @type {Driskh.Assessment} */ result, /** @type {HTMLButtonElement} */ badge) {
     const open = hunk.hunkCell.querySelector('.driskh-reason');
     if (open) {
       open.remove();
@@ -318,11 +324,11 @@
     hunk.hunkCell.appendChild(panel); // after Explain, so that button stays beside the badge
   }
 
-  function saveFeedback(hunk, result, verdict) {
+  function saveFeedback(/** @type {Driskh.PageHunk} */ hunk, /** @type {Driskh.Assessment} */ result, /** @type {string} */ verdict) {
     if (!chrome?.storage?.local) return;
     const pr = location.pathname.replace(/\/(files|changes)(\/.*)?$/, '');
     const header = (hunk.headerRow.textContent.match(/@@[^@]*@@/) || [''])[0];
-    const clip = (lines) => lines.slice(0, 60).map((l) => l.slice(0, 300));
+    const clip = (/** @type {string[]} */ lines) => lines.slice(0, 60).map((/** @type {string} */ l) => l.slice(0, 300));
     const entry = {
       key: `${pr}|${hunk.filePath}|${header}`,
       at: new Date().toISOString(),
@@ -336,7 +342,8 @@
       addedLines: clip(hunk.addedLines),
     };
     chrome.storage.local.get({ [FEEDBACK_KEY]: [] }, (stored) => {
-      const others = (stored[FEEDBACK_KEY] || []).filter((f) => f.key !== entry.key);
+      const saved = /** @type {{key: string}[]} */ (stored[FEEDBACK_KEY] || []);
+      const others = saved.filter((/** @type {any} */ f) => f.key !== entry.key);
       chrome.storage.local.set({ [FEEDBACK_KEY]: [...others, entry].slice(-FEEDBACK_LIMIT) });
     });
   }
@@ -379,7 +386,7 @@
   const renderedHtml = new WeakMap();
 
   function renderSummaryBar() {
-    const headerRows = document.querySelectorAll('tr[data-driskh-level]');
+    const headerRows = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('tr[data-driskh-level]'));
 
     // Even with nothing scanned yet (or highlighting off), keep a minimal
     // bar around so the toggle stays reachable — this is the one thing
@@ -388,22 +395,26 @@
     const bar = getOrCreateSummaryBar();
     if (!bar) return;
 
+    /** @type {Record<string, number>} */
     const counts = { high: 0, medium: 0, low: 0 };
+    /** @type {{id: string, label: string, reason: string}[]} */
     const highLinks = [];
     headerRows.forEach((row, i) => {
-      const level = row.dataset.driskhLevel;
+      const level = row.dataset.driskhLevel || 'low';
       counts[level] = (counts[level] || 0) + 1;
       if (level === 'high') {
-        const label = row.dataset.driskhFile.split('/').pop();
-        highLinks.push({ id: row.id || `driskh-hunk-${i}`, label, reason: row.dataset.driskhReason });
+        const label = (row.dataset.driskhFile || '').split('/').pop() || '';
+        highLinks.push({ id: row.id || `driskh-hunk-${i}`, label, reason: row.dataset.driskhReason || '' });
       }
     });
 
     const MAX_VISIBLE_LINKS = 8;
     // Two high hunks in one file would otherwise read identically ("context.rs",
     // "context.rs"), so repeats get a position suffix: "context.rs (1/2)".
+    /** @type {Record<string, number>} */
     const labelTotals = {};
     highLinks.forEach((l) => { labelTotals[l.label] = (labelTotals[l.label] || 0) + 1; });
+    /** @type {Record<string, number>} */
     const labelSeen = {};
     highLinks.forEach((l) => {
       if (labelTotals[l.label] > 1) {
@@ -415,7 +426,7 @@
     const overflow = highLinks.length - visibleLinks.length;
     const total = headerRows.length;
 
-    const pill = (level, n) =>
+    const pill = (/** @type {Driskh.Level} */ level, /** @type {number} */ n) =>
       `<span class="driskh-pill driskh-pill--${level} driskh-count driskh-count--${level}${n === 0 ? ' driskh-pill--zero' : ''}"><b>${n}</b> ${level}</span>`;
 
     const meterHtml = ['high', 'medium', 'low']
@@ -469,7 +480,7 @@
     // the very checkbox the user just clicked (dropping keyboard focus).
     // It's synced as a property instead.
     const syncToggle = () => {
-      const box = bar.querySelector('.driskh-toggle-input');
+      const box = /** @type {HTMLInputElement | null} */ (bar.querySelector('.driskh-toggle-input'));
       if (box) box.checked = enabled;
     };
     if (renderedHtml.get(bar) === nextHtml) {
@@ -483,20 +494,21 @@
     if (!bar.dataset.driskhClickBound) {
       bar.dataset.driskhClickBound = 'true';
       bar.addEventListener('click', (e) => {
-        const chip = e.target.closest('.driskh-jump-chip');
+        const chip = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (e.target).closest('.driskh-jump-chip'));
         if (!chip) return;
-        const target = document.getElementById(chip.dataset.driskhTarget);
+        const target = document.getElementById(chip.dataset.driskhTarget || '');
         if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
       bar.addEventListener('change', (e) => {
-        if (e.target.classList.contains('driskh-toggle-input')) {
-          setEnabled(e.target.checked);
+        const input = /** @type {HTMLInputElement} */ (e.target);
+        if (input.classList.contains('driskh-toggle-input')) {
+          setEnabled(input.checked);
         }
       });
     }
   }
 
-  function escapeHtml(str) {
+  function escapeHtml(/** @type {string} */ str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
@@ -692,11 +704,11 @@
   // last scan is skipped entirely. This matters at scale (100+ files) and
   // especially for individual huge files (thousands of rows) that are
   // otherwise re-walked on every unrelated DOM mutation.
-  function countHunkHeaders(table) {
+  function countHunkHeaders(/** @type {Element} */ table) {
     return table.querySelectorAll('td.blob-code-hunk').length;
   }
 
-  function assessAndMark(hunk) {
+  function assessAndMark(/** @type {Driskh.PageHunk} */ hunk) {
     // GitHub emits a trailing "expand to end of file" boundary row after a
     // file's last hunk: same boundary cell, but no @@ header and no lines
     // under it. Counting it as a scanned hunk inflated the summary ("2 hunks"
@@ -725,8 +737,8 @@
     // GitHub's React rewrite (see extractHunksFromNewDiffTable) use
     // disjoint selectors, so both are scanned unconditionally — whichever
     // one the current session actually renders is the one that matches.
-    const newTables = document.querySelectorAll('table[aria-label^="Diff for: "]');
-    const fileEls = document.querySelectorAll('.file[data-tagsearch-path]');
+    const newTables = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('table[aria-label^="Diff for: "]'));
+    const fileEls = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.file[data-tagsearch-path]'));
     if (newTables.length === 0 && fileEls.length === 0) return; // still loading
 
     injectStylesOnce();
@@ -805,13 +817,13 @@
   // exist — setEnabled() calls runProcessPage(), which needs both.
   if (chrome?.storage?.local) {
     chrome.storage.local.get({ [STORAGE_KEY]: true }, (result) => {
-      setEnabled(result[STORAGE_KEY], { persist: false });
+      setEnabled(result[STORAGE_KEY] !== false, { persist: false });
     });
     chrome.storage.local.get(['driskhSettings', 'driskhApiKey'], setExplainProvider);
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
       if (changes[STORAGE_KEY]) {
-        setEnabled(changes[STORAGE_KEY].newValue, { persist: false });
+        setEnabled(changes[STORAGE_KEY].newValue !== false, { persist: false });
       }
       if (changes.driskhSettings || changes.driskhApiKey) {
         chrome.storage.local.get(['driskhSettings', 'driskhApiKey'], setExplainProvider);

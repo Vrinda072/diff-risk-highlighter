@@ -1,13 +1,13 @@
 // Removed or added synchronization, and check-then-act.
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(require('./text.js'), require('./language.js'));
   } else {
     const parts = root.DriskhParts || (root.DriskhParts = {});
     parts.concurrency = factory(parts.text, parts.language);
   }
-})(typeof self !== 'undefined' ? self : this, function (textModule, languageModule) {
+})(typeof self !== 'undefined' ? self : this, function (/** @type {typeof import('./text.js')} */ textModule, /** @type {typeof import('./language.js')} */ languageModule) {
   'use strict';
 
   const { LEVELS, STRING_LITERAL_RE } = textModule;
@@ -19,18 +19,18 @@
     /\b(thread\w*|Thread\w*|goroutine|go\s+func|async|await|concurrent\w*|Concurrent\w*|parallel\w*|executor|Executor\w*|ThreadPool\w*|worker\w*|multiprocessing|spawn|Task\.Run|DispatchQueue)\b/;
   const CHECK_THEN_ACT_PATTERNS = [
     // Python: if k not in c: ... c[k] = / c.add / c.append / c.setdefault
-    { check: /\bif\s+(?:not\s+)?[\w.\[\]'"]+\s+(?:not\s+)?in\s+([\w.]+)\s*:/, act: (c) => new RegExp(`\\b${c}(\\[[^\\]]+\\]\\s*=[^=]|\\.(add|append|setdefault)\\()`) },
+    { check: /\bif\s+(?:not\s+)?[\w.\[\]'"]+\s+(?:not\s+)?in\s+([\w.]+)\s*:/, act: (/** @type {string} */ c) => new RegExp(`\\b${c}(\\[[^\\]]+\\]\\s*=[^=]|\\.(add|append|setdefault)\\()`) },
     // JS/TS/Java: if (!c.has(k)) / containsKey / contains ... c.set / put / add
-    { check: /\bif\s*\(\s*!?\s*([\w.]+)\.(has|containsKey|contains)\(/, act: (c) => new RegExp(`\\b${c}\\.(set|put|add|putIfAbsent)\\(`) },
+    { check: /\bif\s*\(\s*!?\s*([\w.]+)\.(has|containsKey|contains)\(/, act: (/** @type {string} */ c) => new RegExp(`\\b${c}\\.(set|put|add|putIfAbsent)\\(`) },
     // Go: if _, ok := c[k]; !ok { c[k] = v }
-    { check: /\bif\s+_,\s*ok\s*:?=\s*([\w.]+)\[/, act: (c) => new RegExp(`\\b${c}\\[[^\\]]+\\]\\s*=[^=]`) },
+    { check: /\bif\s+_,\s*ok\s*:?=\s*([\w.]+)\[/, act: (/** @type {string} */ c) => new RegExp(`\\b${c}\\[[^\\]]+\\]\\s*=[^=]`) },
   ];
 
   // For finding signals, a "// words" line is skipped in every language.
   const SLASH_PROSE_RE = /^\s*\/\/\s/;
 
-  function codeOnly(lines, lang) {
-    return lines.filter((l) => !isCommentLine(l, lang) && !SLASH_PROSE_RE.test(l)).map((l) => l.replace(STRING_LITERAL_RE, '""'));
+  function codeOnly(/** @type {string[]} */ lines, /** @type {Driskh.Language} */ lang) {
+    return lines.filter((/** @type {string} */ l) => !isCommentLine(l, lang) && !SLASH_PROSE_RE.test(l)).map((/** @type {string} */ l) => l.replace(STRING_LITERAL_RE, '""'));
   }
 
   // Lock *variables* are usually named for what they are (`_lock`,
@@ -39,14 +39,14 @@
   // file_lock_path don't count.
   const LOCK_IDENTIFIER_RE = /(?:^|[^\w])[\w.]*_(?:r?lock|mutex|mu)\b|\bwith\s+[\w.]*[Ll]ock\b/g;
 
-  function countSyncPrimitives(lines, lang) {
+  function countSyncPrimitives(/** @type {string[]} */ lines, /** @type {Driskh.Language} */ lang) {
     return codeOnly(lines, lang).reduce(
-      (n, l) => n + (l.match(SYNC_PRIMITIVE_RE) || []).length + (l.match(LOCK_IDENTIFIER_RE) || []).length,
+      (/** @type {number} */ n, /** @type {string} */ l) => n + (l.match(SYNC_PRIMITIVE_RE) || []).length + (l.match(LOCK_IDENTIFIER_RE) || []).length,
       0
     );
   }
 
-  function detectConcurrencyRisk(removedLines, addedLines, filePath) {
+  function detectConcurrencyRisk(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines, /** @type {string} */ filePath) {
     const lang = languageOf(filePath);
     const removedSync = countSyncPrimitives(removedLines, lang);
     const addedSync = countSyncPrimitives(addedLines, lang);
@@ -75,7 +75,7 @@
         const m = added[i].match(check);
         if (!m) continue;
         const actRe = act(m[1].replace(/[.$]/g, '\\$&'));
-        if (added.slice(i, i + 6).some((l) => actRe.test(l))) {
+        if (added.slice(i, i + 6).some((/** @type {string} */ l) => actRe.test(l))) {
           return {
             severity: LEVELS.MEDIUM,
             reason: `New check-then-act on "${m[1]}" in concurrent code with no lock — another thread/task can change it between the check and the write.`,
