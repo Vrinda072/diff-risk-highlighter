@@ -41,7 +41,7 @@ Code review is a large, ongoing investment of developer time [[1]](#references) 
 ## What you see
 
 <div align="center">
-<img src="docs/img/live-dark.png" alt="A high-risk hunk on a live pull request: the summary bar above shows 3 high, 7 medium and 41 low out of 51 hunks, and the hunk has a red left edge, a HIGH badge and an Explain button." width="880">
+<img src="docs/img/live-dark.png" alt="A high-risk hunk on a live pull request: the summary bar above shows 3 high, 6 medium and 42 low out of 51 hunks, and the hunk has a red left edge, a HIGH badge and an Explain button." width="880">
 </div>
 
 - **A colored edge and a `HIGH` / `MEDIUM` badge** on every flagged hunk. Press the badge (mouse, keyboard or touch) to read why.
@@ -51,7 +51,7 @@ Code review is a large, ongoing investment of developer time [[1]](#references) 
 - **A switch** (and the toolbar icon) to turn highlighting off and on.
 - **An optional "Explain" button** on high-risk hunks asks an AI model for a one-sentence reason. It can run **for free**, on your own machine with Ollama or on Google's Gemini free tier, or use a paid Anthropic key. Nothing leaves your browser unless you click it. The button names where the hunk will go (`Explain · local`, `Explain · Gemini`).
 
-It follows GitHub's theme (light, dark, high-contrast) because every color comes from GitHub's own Primer CSS variables [[11]](#references). The screenshot above is a live pull request: 3 high, 7 medium and 41 low out of 51 hunks.
+It follows GitHub's theme (light, dark, high-contrast) because every color comes from GitHub's own Primer CSS variables [[11]](#references). The screenshot above is a live pull request: 3 high, 6 medium and 42 low out of 51 hunks.
 
 ### Explain, for free
 
