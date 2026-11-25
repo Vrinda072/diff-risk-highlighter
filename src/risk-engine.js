@@ -387,10 +387,21 @@
   const SEMVER_LITERAL_RE = /\bv?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\b/g;
   const PACKAGE_MANIFEST_RE = /(^|\/)(package\.json|Cargo\.toml|pyproject\.toml)$/;
   const QUOTED_VERSION_RE = /(["'])[\^~<>=!\s]*v?\d+(?:\.(?:\d+|[xX*]))*(?:[-+][0-9A-Za-z.-]+)?\1/g;
+  const ACTION_REF_RE = /@v\d+(?:\.\d+)*\b/g;
+  const WILDCARD_VERSION_RE = /(["'])\d+(?:\.\d+)*\.[*xX]\1/g;
+  // Package names such as `oauth2-server-bundle` aren't security-sensitive
+  // code, so dependency manifests skip the keyword detector.
+  const DEPENDENCY_MANIFEST_RE =
+    /(^|\/)(package\.json|composer\.json|go\.mod|requirements[\w.-]*\.txt|Cargo\.toml|Gemfile|pyproject\.toml|pom\.xml|build\.gradle(\.kts)?)$/i;
   const VERSION_MASK = 'VERSION_LITERAL';
 
   function maskVersionLiterals(line, filePath) {
-    let masked = line.replace(SEMVER_LITERAL_RE, VERSION_MASK);
+    let masked = line
+      .replace(SEMVER_LITERAL_RE, VERSION_MASK)
+      // `uses: actions/checkout@v3` -> `@v4`, and quoted wildcards such as
+      // '6.4.*' -> '7.4.*', are version bumps wherever they appear.
+      .replace(ACTION_REF_RE, '@' + VERSION_MASK)
+      .replace(WILDCARD_VERSION_RE, `$1${VERSION_MASK}$1`);
     if (PACKAGE_MANIFEST_RE.test(filePath || '')) {
       masked = masked.replace(QUOTED_VERSION_RE, `$1${VERSION_MASK}$1`);
     }
@@ -513,17 +524,36 @@
   const CONDITIONAL_RE = /^[\s})]*\b(if|else if|elif|else|switch|case|match)\b/;
   const EXIT_KEYWORD_RE = /\b(return|raise|throw)\b/;
 
-  function detectRemovedConditional(removedLines) {
-    const conditionalLines = removedLines.filter((l) => CONDITIONAL_RE.test(l));
-    if (conditionalLines.length === 0) return null;
+  // What counts is conditionals that disappeared on balance. Comparing only
+  // "did a removed line start with `if`" flagged every edited, re-indented or
+  // moved condition: 82% of these flags in a 94-PR audit were hunks that added
+  // back at least as many conditionals as they removed.
+  const countLines = (lines, re) => lines.reduce((n, l) => n + (re.test(l) ? 1 : 0), 0);
 
-    const substantial =
-      conditionalLines.length >= 3 || removedLines.some((l) => EXIT_KEYWORD_RE.test(l));
+  // A condition's text with layout stripped, so re-wrapping isn't a "change".
+  const conditionKey = (line) => line.replace(/[\s{}:]+/g, '').replace(/"/g, "'");
 
+  function detectRemovedConditional(removedLines, addedLines) {
+    const removed = removedLines.filter((l) => CONDITIONAL_RE.test(l));
+    if (removed.length === 0) return null;
+    const added = (addedLines || []).filter((l) => CONDITIONAL_RE.test(l));
+    const net = removed.length - added.length;
+
+    if (net > 0) {
+      // Same severity rule as before for real removals; only edits are softened.
+      const substantial = removed.length >= 3 || removedLines.some((l) => EXIT_KEYWORD_RE.test(l));
+      return {
+        severity: substantial ? LEVELS.HIGH : LEVELS.MEDIUM,
+        reason:
+          'Removed a conditional branch — confirm it was actually unreachable, not a behavior change.',
+      };
+    }
+
+    const kept = new Set(added.map(conditionKey));
+    if (removed.every((l) => kept.has(conditionKey(l)))) return null;
     return {
-      severity: substantial ? LEVELS.HIGH : LEVELS.MEDIUM,
-      reason:
-        'Removed a conditional branch — confirm it was actually unreachable, not a behavior change.',
+      severity: LEVELS.MEDIUM,
+      reason: 'Changed a condition — check the new branch logic covers the same cases (or is meant not to).',
     };
   }
 
@@ -535,30 +565,34 @@
   // cuts a huge amount of noise. Confirmed against django/django#16012's
   // real test suite, which is full of bare "delete"/"select" as English
   // words and previously false-positived here.
-  const SQL_VERB_RE = /\b(SELECT|INSERT|UPDATE|DELETE)\b/i;
-  // NOTE: deliberately excludes JOIN — `.join(...)` (string/array join) is
-  // common enough in ordinary code that it swamped this signal in testing
-  // (see below) for essentially no real SQL-detection benefit; multi-table
-  // SQL joins are still caught via the FROM/WHERE that accompanies them.
-  const SQL_CLAUSE_RE = /\b(FROM|WHERE|INTO|VALUES)\b/i;
+  // A query on changed lines is recognised two ways: a statement shape in any
+  // case (SELECT ... FROM, INSERT INTO, UPDATE x SET, DELETE FROM), or an
+  // UPPERCASE verb with an UPPERCASE clause, SQL's usual spelling. The second
+  // matters because a diff often changes only some lines of a query: in
+  // VIP-portal#698's fix the FROM line is unchanged context, leaving just
+  // SELECT and WHERE. Lowercase English ("update", "from") no longer counts,
+  // and import and comment lines are ignored: both fired constantly on
+  // Python's `from x import y` next to `.update(` and an f-string.
+  const SQL_STATEMENT_RE =
+    /\bSELECT\b[\s\S]{0,300}?\bFROM\b|\bINSERT\s+(?:OR\s+\w+\s+)?INTO\b|\bUPDATE\s+[\w."`\[\]]+\s+SET\b|\bDELETE\s+FROM\b/i;
+  // NOTE: deliberately excludes JOIN — `.join(...)` is common in ordinary code.
+  const SQL_UPPER_VERB_RE = /\b(SELECT|INSERT|UPDATE|DELETE)\b/;
+  const SQL_UPPER_CLAUSE_RE = /\b(FROM|WHERE|INTO|VALUES)\b/;
+  const IMPORT_LINE_RE = /^\s*(import\b|from\s+[\w.]+\s+import\b|export\s+.*\bfrom\s+['"])/;
   const STRING_BUILD_RE = /(\+\s*["'`]|["'`]\s*\+|\.append\(|\.concat\(|f["']|%s|\$\{)/;
   const SQL_WINDOW_SIZE = 6;
 
   // Real SQL string-building often spans a few lines (one line per clause,
-  // joined with `+`, as in VIP-portal#698's fixture), so this can't require
-  // verb+clause+build all on one line. But checking the whole hunk as one
-  // blob was checked in calibration and matched constantly on unrelated
-  // 100+ line hunks — e.g. Django admin test fixtures with `.join(`,
-  // f-strings, and the English words "select"/"delete" nowhere near each
-  // other. A small sliding window is the middle ground: real query
-  // construction has verb/clause/concatenation close together; incidental
-  // matches scattered across a large hunk mostly don't.
+  // joined with `+`), so this can't require everything on one line. A small
+  // sliding window is the middle ground: real query construction sits close
+  // together; incidental matches scattered across a large hunk mostly don't.
   function hasSqlShape(lines) {
-    for (let start = 0; start < lines.length; start++) {
-      const windowText = lines.slice(start, start + SQL_WINDOW_SIZE).join('\n');
-      if (SQL_VERB_RE.test(windowText) && SQL_CLAUSE_RE.test(windowText) && STRING_BUILD_RE.test(windowText)) {
-        return true;
-      }
+    const code = lines.filter((l) => !IMPORT_LINE_RE.test(l) && !COMMENT_LINE_RE.test(l));
+    for (let start = 0; start < code.length; start++) {
+      const windowText = code.slice(start, start + SQL_WINDOW_SIZE).join('\n');
+      const looksLikeSql =
+        SQL_STATEMENT_RE.test(windowText) || (SQL_UPPER_VERB_RE.test(windowText) && SQL_UPPER_CLAUSE_RE.test(windowText));
+      if (looksLikeSql && STRING_BUILD_RE.test(windowText)) return true;
     }
     return false;
   }
@@ -891,7 +925,8 @@
     // In a test file a security keyword is only a medium nudge, and it must
     // not outrank a more specific finding at the same level (e.g. "skipped
     // test"), so that candidate is pushed after detectWeakenedTest below.
-    const securityHit = !isDocumentation && detectSecuritySensitive(removedLines, addedLines);
+    const securityHit =
+      !isDocumentation && !DEPENDENCY_MANIFEST_RE.test(filePath) && detectSecuritySensitive(removedLines, addedLines);
     const securityInTest = securityHit && isTestFile(filePath);
     if (securityHit && !securityInTest) {
       candidates.push({
@@ -901,7 +936,7 @@
       });
     }
 
-    const conditional = detectRemovedConditional(removedLines);
+    const conditional = detectRemovedConditional(removedLines, addedLines);
     if (conditional) {
       candidates.push(conditional);
     }
