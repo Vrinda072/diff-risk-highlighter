@@ -176,6 +176,16 @@
   chrome.storage = { local: { get: (d, cb) => cb({ ...d }), set: (o, cb) => cb && cb() }, onChanged: { addListener(fn) { window.__onChanged = fn; } } };
   chrome.runtime = { sendMessage: (m, cb) => cb({ explanation: 'The query concatenates groupName into SQL, so a crafted name can alter the statement.' }), lastError: null };
 </script>
+<script src="/src/engine/text.js"></script>
+<script src="/src/engine/language.js"></script>
+<script src="/src/engine/files.js"></script>
+<script src="/src/engine/shortcuts.js"></script>
+<script src="/src/engine/boundary.js"></script>
+<script src="/src/engine/logic.js"></script>
+<script src="/src/engine/security.js"></script>
+<script src="/src/engine/tests.js"></script>
+<script src="/src/engine/concurrency.js"></script>
+<script src="/src/engine/signature.js"></script>
 <script src="/src/risk-engine.js"></script>
 <script src="/src/content.js"></script>
 

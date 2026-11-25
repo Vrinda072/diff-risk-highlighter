@@ -21,12 +21,21 @@ const arg = (name, fallback) => {
 };
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
+// The engine exactly as it was at a git ref: one file in older tags, plus
+// src/engine/ in later ones.
+function engineAt(ref) {
+  const git = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'driskh-baseline-'));
+  for (const name of git(['ls-tree', '-r', '--name-only', ref, 'src/risk-engine.js', 'src/engine']).split('\n').filter(Boolean)) {
+    fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+    fs.writeFileSync(path.join(dir, name), git(['show', `${ref}:${name}`]));
+  }
+  return require(path.join(dir, 'src', 'risk-engine.js'));
+}
+
 function loadEngines(baselineTag) {
   const engines = {};
-  const source = execFileSync('git', ['show', `${baselineTag}:src/risk-engine.js`], { cwd: ROOT, encoding: 'utf8' });
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'driskh-baseline-')), 'risk-engine.js');
-  fs.writeFileSync(file, source);
-  engines[baselineTag] = require(file);
+  engines[baselineTag] = engineAt(baselineTag);
   engines['current'] = require(path.join(ROOT, 'src', 'risk-engine.js'));
   return engines;
 }
@@ -137,4 +146,4 @@ if (require.main === module) {
   fs.writeFileSync(path.join(reports, 'latest.md'), text);
 }
 
-module.exports = { run };
+module.exports = { run, engineAt };

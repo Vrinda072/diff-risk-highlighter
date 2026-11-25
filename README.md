@@ -79,7 +79,7 @@ The extension installs with **no access to any of these sites**. Chrome asks for
 <img src="docs/img/architecture.svg" alt="Architecture: GitHub PR page to content.js to risk-engine.js to badges and the summary bar, with an optional dashed branch from Explain through background.js to the Anthropic API." width="900">
 </div>
 
-`risk-engine.js` knows nothing about the DOM: it takes one hunk and returns `{ level, reason }`, which is why it is unit-testable in plain Node. `content.js` does everything GitHub-specific, for both GitHub's classic diff markup and its newer React layout (`/changes`), and re-scans with a debounced `MutationObserver` [[12]](#references) as GitHub lazy-loads files. The optional Explain call is made from a background service worker, because a content script's `fetch` is subject to GitHub's page CSP [[13]](#references). The providers live in [`src/explain.js`](src/explain.js), which takes `fetch` as an argument so every request shape and error path is unit-tested without a network or a key.
+`risk-engine.js`, with its detectors in [`src/engine/`](src/engine/), knows nothing about the DOM: it takes one hunk and returns `{ level, reason }`, which is why it is unit-testable in plain Node. `content.js` does everything GitHub-specific, for both GitHub's classic diff markup and its newer React layout (`/changes`), and re-scans with a debounced `MutationObserver` [[12]](#references) as GitHub lazy-loads files. The optional Explain call is made from a background service worker, because a content script's `fetch` is subject to GitHub's page CSP [[13]](#references). The providers live in [`src/explain.js`](src/explain.js), which takes `fetch` as an argument so every request shape and error path is unit-tested without a network or a key.
 
 ## The risk engine
 
@@ -229,7 +229,8 @@ node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 
 ```
 manifest.json            Manifest V3 config
-src/risk-engine.js       The heuristics: pure, DOM-free, unit-tested
+src/risk-engine.js       Decides a hunk's level: shortcuts, then the detector table
+src/engine/              One file per concern: shortcuts, language facts, each detector
 src/content.js           Finds hunks (classic + React DOM), draws badges and the summary bar
 src/background.js        Runs the optional Explain request (CSP-safe) + toolbar toggle
 src/explain.js           Explain providers: Ollama, Gemini, Anthropic (pure, unit-tested)
