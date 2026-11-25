@@ -105,45 +105,105 @@
   // Sorensen-Dice coefficient over character bigrams: cheap, dependency-free,
   // and good enough to tell "this is probably the edited version of that
   // line" apart from "this is an unrelated line" without a real diff algorithm.
-  function lineSimilarity(a, b) {
-    const ta = a.trim();
-    const tb = b.trim();
-    if (ta === tb) return 1;
-    const A = bigrams(ta);
-    const B = bigrams(tb);
-    if (A.size === 0 || B.size === 0) return ta === tb ? 1 : 0;
+  // A line's bigram profile is built once and reused for every comparison.
+  function lineProfile(line) {
+    const trimmed = line.trim();
+    const grams = bigrams(trimmed);
+    let total = 0;
+    for (const count of grams.values()) total += count;
+    return { trimmed, grams, total };
+  }
+
+  function profileSimilarity(a, b) {
+    if (a.trimmed === b.trimmed) return 1;
+    if (a.grams.size === 0 || b.grams.size === 0) return 0;
     let intersection = 0;
-    for (const [bg, count] of A) {
-      if (B.has(bg)) intersection += Math.min(count, B.get(bg));
+    for (const [bg, count] of a.grams) {
+      const other = b.grams.get(bg);
+      if (other) intersection += Math.min(count, other);
     }
-    let totalA = 0;
-    for (const c of A.values()) totalA += c;
-    let totalB = 0;
-    for (const c of B.values()) totalB += c;
-    return (2 * intersection) / (totalA + totalB);
+    return (2 * intersection) / (a.total + b.total);
+  }
+
+  function lineSimilarity(a, b) {
+    return profileSimilarity(lineProfile(a), lineProfile(b));
+  }
+
+  // Comparing every removed line with every added line is quadratic: one real
+  // 1,500-line hunk cost seconds of GitHub's main thread, and 6,000 x 6,000
+  // took 111 s. Hunks up to this many line pairs are still compared
+  // exhaustively. Bigger ones first match identical lines, then use those as
+  // anchors and only compare each remaining removed line with added lines near
+  // where its neighbours landed.
+  const MAX_EXHAUSTIVE_PAIRS = 40000;
+  const PAIR_WINDOW = 40;
+
+  // For large hunks: where each identical removed line sits on the added side.
+  function exactMatches(removed, added) {
+    const positions = new Map();
+    added.forEach((line, i) => {
+      if (!positions.has(line.trimmed)) positions.set(line.trimmed, []);
+      positions.get(line.trimmed).push(i);
+    });
+    const cursor = new Map();
+    return removed.map((line) => {
+      const list = positions.get(line.trimmed);
+      if (!list) return -1;
+      const next = cursor.get(line.trimmed) || 0;
+      if (next >= list.length) return -1;
+      cursor.set(line.trimmed, next + 1);
+      return list[next];
+    });
   }
 
   // Greedy best-match pairing between removed/added lines by similarity.
-  // Not a real LCS/Myers diff — but hunks are short, and "greedy nearest
-  // neighbor" is enough to line up "the edited version of this line"
-  // without pulling in a diff library.
+  // Not a real LCS/Myers diff — but "greedy nearest neighbor" is enough to
+  // line up "the edited version of this line" without pulling in a diff library.
   function pairLines(removedLines, addedLines, threshold) {
-    const usedAdded = new Set();
+    const removed = removedLines.map(lineProfile);
+    const added = addedLines.map(lineProfile);
+    const large = removed.length * added.length > MAX_EXHAUSTIVE_PAIRS;
+    const exact = large ? exactMatches(removed, added) : null;
+    const usedAdded = new Array(added.length).fill(false);
+    if (large) exact.forEach((i) => i >= 0 && (usedAdded[i] = true));
+    // wide enough that the windows still cover the added side when it is much longer
+    const half = large ? Math.max(PAIR_WINDOW, Math.ceil(added.length / Math.max(1, removed.length))) : 0;
+
     const pairs = [];
-    for (const removed of removedLines) {
+    let anchor = null;
+    for (let r = 0; r < removed.length; r++) {
+      const line = removed[r];
+      if (large && exact[r] >= 0) {
+        anchor = { r, a: exact[r] };
+        pairs.push({ removed: removedLines[r], added: addedLines[exact[r]], score: 1 });
+        continue;
+      }
+      let from = 0;
+      let to = added.length;
+      if (large) {
+        const center = anchor ? anchor.a + (r - anchor.r) : Math.round((r * added.length) / removed.length);
+        from = Math.max(0, Math.min(center, added.length - 1) - half);
+        to = Math.min(added.length, Math.max(center, 0) + half + 1);
+      }
       let bestIdx = -1;
       let bestScore = 0;
-      for (let i = 0; i < addedLines.length; i++) {
-        if (usedAdded.has(i)) continue;
-        const score = lineSimilarity(removed, addedLines[i]);
+      for (let i = from; i < to; i++) {
+        if (usedAdded[i]) continue;
+        const other = added[i];
+        // Dice can't exceed this, so skip pairs that can't win (same results, less work).
+        if (line.trimmed !== other.trimmed) {
+          const bound = (2 * Math.min(line.total, other.total)) / (line.total + other.total || 1);
+          if (bound <= bestScore || bound < threshold) continue;
+        }
+        const score = profileSimilarity(line, other);
         if (score > bestScore) {
           bestScore = score;
           bestIdx = i;
         }
       }
       if (bestIdx !== -1 && bestScore >= threshold) {
-        usedAdded.add(bestIdx);
-        pairs.push({ removed, added: addedLines[bestIdx], score: bestScore });
+        usedAdded[bestIdx] = true;
+        pairs.push({ removed: removedLines[r], added: addedLines[bestIdx], score: bestScore });
       }
     }
     return pairs;
