@@ -205,9 +205,17 @@ test('Explain names the provider and will not call it without permission', async
   await expect(button).toHaveText('Explain · Gemini'); // updates live
   await expect(button).toHaveAttribute('title', /Google/);
 
+  // Close leftover tabs so the options page this click opens is a fresh one.
+  for (const other of ext.context.pages()) if (other !== page) await other.close();
+  const opened = ext.context.waitForEvent('page', (p) => p.url().includes('options.html'));
   await button.click();
   await expect(page.locator('.driskh-explain-error').first()).toContainText(/Allow access/);
+  // Wait for the options page it opens: with Gemini chosen, that page must not
+  // contact Ollama either (it once did, which only showed up intermittently).
+  const options = await opened;
+  await options.waitForLoadState('networkidle');
+  await options.waitForTimeout(500);
   expect(outside).toEqual([]);
-  for (const other of ext.context.pages()) if (other !== page) await other.close();
+  await options.close();
   await page.close();
 });

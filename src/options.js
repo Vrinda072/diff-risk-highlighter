@@ -42,9 +42,11 @@
     const stored = await chrome.storage.local.get(['driskhSettings', 'driskhApiKey']);
     const s = DriskhExplain.resolveSettings(stored);
     fillForm(s);
-    refreshOllamaModels();
+    if (s.provider === 'ollama') refreshOllamaModels();
   }
 
+  // Only ever called while Ollama is the selected provider: merely opening this
+  // page must not contact a provider the user hasn't picked.
   async function refreshOllamaModels() {
     const hint = $('ollamaHint');
     const base = ($('ollamaUrl').value.trim() || DriskhExplain.DEFAULTS.ollamaUrl).replace(/\/+$/, '');
@@ -135,6 +137,7 @@
   $('save').addEventListener('click', save);
   $('test').addEventListener('click', saveAndTest);
   $('ollamaUrl').addEventListener('change', refreshOllamaModels);
+  document.querySelector('input[name="provider"][value="ollama"]').addEventListener('change', refreshOllamaModels);
   $('exportFeedback').addEventListener('click', exportFeedback);
   $('clearFeedback').addEventListener('click', clearFeedback);
   load();
