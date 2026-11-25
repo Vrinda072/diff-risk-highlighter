@@ -26,7 +26,7 @@ A Chrome extension that reads GitHub's **Files changed** tab and flags risky hun
 | What else gets flagged there? | 33 of 289 other hunks, 6 of them high | same development set |
 | Did the November false-alarm fixes help? | HIGH flags 147 to 92, no change on any fixture | 33 audit PRs that motivated the fixes (so also development data) |
 | Does it freeze huge PRs? | engine time 21.9 s to 0.3 s; longest page freeze about 2 s to under 0.6 s | [a real 287-file PR](#speed-on-very-large-pull-requests) |
-| **How well does it work on new code?** | **Not measured yet.** | a [sealed set of 60 PRs](eval/README.md) is waiting for human labels |
+| **How well does it work on new code?** | **Not measured yet.** | a [sealed set of 100 PRs](eval/README.md) is waiting for human labels |
 
 The first two rows say nothing about unseen code. The [held-out evaluation](eval/README.md) is built to answer that: how often is the real fix among the first three hunks a reviewer reads, compared with GitHub's own order, largest-hunk-first and random? It was sealed before the latest engine changes, with the earlier engine tagged `baseline-1.1.0` for comparison. Failure examples are in [Known Limitations](#known-limitations--future-work).
 
