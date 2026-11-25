@@ -44,7 +44,10 @@
     if (persist && chrome?.storage?.local) {
       chrome.storage.local.set({ [STORAGE_KEY]: enabled });
     }
-    if (enabled) runProcessPage();
+    if (enabled) {
+      fullScanNeeded = true;
+      runProcessPage();
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -146,6 +149,8 @@
     hunk.headerRow.dataset.driskhLevel = result.level;
     hunk.headerRow.dataset.driskhReason = result.reason;
     hunk.headerRow.dataset.driskhFile = hunk.filePath;
+    markedRows.add(hunk.headerRow);
+    summaryStale = true;
 
     if (result.level === 'low') return;
 
@@ -385,8 +390,15 @@
 
   const renderedHtml = new WeakMap();
 
+  const MARKED_ROW = 'tr[data-driskh-level]';
+  // Every rated hunk row, so the bar doesn't search the whole page on every
+  // scan. A full scan rebuilds it from the page, which drops removed rows.
+  /** @type {Set<HTMLElement>} */
+  let markedRows = new Set();
+  let summaryStale = true;
+
   function renderSummaryBar() {
-    const headerRows = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('tr[data-driskh-level]'));
+    const headerRows = Array.from(markedRows).filter((row) => row.isConnected);
 
     // Even with nothing scanned yet (or highlighting off), keep a minimal
     // bar around so the toggle stays reachable — this is the one thing
@@ -399,13 +411,19 @@
     const counts = { high: 0, medium: 0, low: 0 };
     /** @type {{id: string, label: string, reason: string}[]} */
     const highLinks = [];
-    headerRows.forEach((row, i) => {
+    /** @type {HTMLElement[]} */
+    const highRows = [];
+    for (const row of headerRows) {
       const level = row.dataset.driskhLevel || 'low';
       counts[level] = (counts[level] || 0) + 1;
-      if (level === 'high') {
-        const label = (row.dataset.driskhFile || '').split('/').pop() || '';
-        highLinks.push({ id: row.id || `driskh-hunk-${i}`, label, reason: row.dataset.driskhReason || '' });
-      }
+      if (level === 'high') highRows.push(row);
+    }
+    // Files can arrive out of order, and the jump chips follow the page. Only
+    // the high rows need sorting.
+    highRows.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    highRows.forEach((row, i) => {
+      const label = (row.dataset.driskhFile || '').split('/').pop() || '';
+      highLinks.push({ id: row.id || `driskh-hunk-${i}`, label, reason: row.dataset.driskhReason || '' });
     });
 
     const MAX_VISIBLE_LINKS = 8;
@@ -725,56 +743,85 @@
     markHunk(hunk, result);
   }
 
+  const CLASSIC_FILE = '.file[data-tagsearch-path]';
+  const REACT_TABLE = 'table[aria-label^="Diff for: "]';
+  const FILE_CONTAINER = `${CLASSIC_FILE}, ${REACT_TABLE}`;
+  const SCAN_DELAY_MS = 150;
+  const SWEEP_AFTER_QUIET_MS = 1000;
+
+  // The file containers that changed since the last scan. A huge pull request
+  // streams in file by file, and rescanning every file each time made the
+  // work grow with the square of the number of files.
+  /** @type {Set<Element>} */
+  const changedFiles = new Set();
+  let fullScanNeeded = true;
+
+  function noteMutations(/** @type {MutationRecord[]} */ records) {
+    for (const record of records) {
+      const inside = record.target instanceof Element ? record.target.closest(FILE_CONTAINER) : null;
+      if (inside) changedFiles.add(inside);
+      for (const node of record.addedNodes) {
+        if (inside || !(node instanceof Element)) continue;
+        if (node.matches(FILE_CONTAINER)) changedFiles.add(node);
+        else if (node.firstElementChild) node.querySelectorAll(FILE_CONTAINER).forEach((file) => changedFiles.add(file));
+      }
+      for (const node of record.removedNodes) {
+        if (node instanceof Element && (node.matches(MARKED_ROW) || node.querySelector(MARKED_ROW))) summaryStale = true;
+      }
+    }
+  }
+
+  // Classic server-rendered table (see extractHunksFromFile) and GitHub's
+  // React rewrite (see extractHunksFromNewDiffTable). A container whose hunk
+  // count hasn't changed since its last scan is skipped without walking rows.
+  function scanFile(/** @type {HTMLElement} */ container) {
+    const isReact = container.matches(REACT_TABLE);
+    const table = isReact ? container : container.querySelector('table.diff-table');
+    if (!table) return; // binary file, or diff collapsed behind "Load diff"/lazy-loaded fragment
+
+    const currentHunkCount = isReact ? table.querySelectorAll('td.diff-hunk-cell').length : countHunkHeaders(table);
+    if (currentHunkCount === Number(container.dataset.driskhHunkCount || 0)) return;
+    container.dataset.driskhHunkCount = String(currentHunkCount);
+
+    const hunks = isReact
+      ? extractHunksFromNewDiffTable(table, (table.getAttribute('aria-label') || '').replace(/^Diff for:\s*/, '') || '(unknown path)')
+      : extractHunksFromFile(container, table);
+    for (const hunk of hunks) {
+      if (!hunk.headerRow.dataset.driskhProcessed) assessAndMark(hunk);
+    }
+  }
+
   function processPage() {
     if (!isFilesChangedPage()) {
       // GitHub navigates between PR tabs without a full reload, and the
       // bar's parent can outlive the Files tab — don't leave it behind.
       document.getElementById(SUMMARY_BAR_ID)?.remove();
+      changedFiles.clear();
+      fullScanNeeded = true;
       return;
     }
 
-    // Classic server-rendered table (see extractHunksFromFile) and
-    // GitHub's React rewrite (see extractHunksFromNewDiffTable) use
-    // disjoint selectors, so both are scanned unconditionally — whichever
-    // one the current session actually renders is the one that matches.
-    const newTables = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('table[aria-label^="Diff for: "]'));
-    const fileEls = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.file[data-tagsearch-path]'));
-    if (newTables.length === 0 && fileEls.length === 0) return; // still loading
+    const files = fullScanNeeded
+      ? Array.from(document.querySelectorAll(FILE_CONTAINER))
+      : Array.from(changedFiles).filter((file) => file.isConnected);
+    if (fullScanNeeded && files.length === 0) return; // still loading
 
     injectStylesOnce();
 
     if (enabled) {
-      for (const table of newTables) {
-        const currentHunkCount = table.querySelectorAll('td.diff-hunk-cell').length;
-        const lastHunkCount = Number(table.dataset.driskhHunkCount || 0);
-        if (currentHunkCount === lastHunkCount) continue; // nothing new since last scan
-        table.dataset.driskhHunkCount = String(currentHunkCount);
-
-        const filePath =
-          (table.getAttribute('aria-label') || '').replace(/^Diff for:\s*/, '') || '(unknown path)';
-        for (const hunk of extractHunksFromNewDiffTable(table, filePath)) {
-          if (hunk.headerRow.dataset.driskhProcessed) continue;
-          assessAndMark(hunk);
-        }
-      }
-
-      for (const fileEl of fileEls) {
-        const table = fileEl.querySelector('table.diff-table');
-        if (!table) continue; // binary file, or diff collapsed behind "Load diff"/lazy-loaded fragment
-
-        const currentHunkCount = countHunkHeaders(table);
-        const lastHunkCount = Number(fileEl.dataset.driskhHunkCount || 0);
-        if (currentHunkCount === lastHunkCount) continue; // nothing new since last scan
-        fileEl.dataset.driskhHunkCount = String(currentHunkCount);
-
-        for (const hunk of extractHunksFromFile(fileEl, table)) {
-          if (hunk.headerRow.dataset.driskhProcessed) continue;
-          assessAndMark(hunk);
-        }
-      }
+      for (const file of files) scanFile(/** @type {HTMLElement} */ (file));
     }
+    if (fullScanNeeded) {
+      markedRows = new Set(/** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(MARKED_ROW)));
+      summaryStale = true;
+    }
+    changedFiles.clear();
+    fullScanNeeded = false;
 
-    renderSummaryBar();
+    if (summaryStale || !document.getElementById(SUMMARY_BAR_ID)) {
+      renderSummaryBar();
+      summaryStale = false;
+    }
   }
 
   // Also catches GitHub's own lazy-loaded diff content: large/collapsed
@@ -782,7 +829,19 @@
   // markup later (on "Load diff" click, or automatically for some files)
   // — confirmed live against a real PR where a 2,848-line deletion loaded
   // this way and was correctly picked up on the next scheduled scan.
-  const observer = new MutationObserver(scheduleScan);
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let sweepTimer;
+  const observer = new MutationObserver((records) => {
+    noteMutations(records);
+    scheduleScan();
+    // Safety net: once the page goes quiet, look at everything once, so a
+    // change the bookkeeping above misses is still picked up.
+    clearTimeout(sweepTimer);
+    sweepTimer = setTimeout(() => {
+      fullScanNeeded = true;
+      runProcessPage();
+    }, SWEEP_AFTER_QUIET_MS);
+  });
 
   // processPage's own writes (badges, dataset flags, the summary bar)
   // are themselves childList/subtree mutations, so the observer above
@@ -795,6 +854,7 @@
   // between, JS is single-threaded) breaks the self-triggering loop
   // without missing any genuine external mutation.
   function runProcessPage() {
+    noteMutations(observer.takeRecords()); // disconnect() would drop them
     observer.disconnect();
     try {
       processPage();
@@ -810,7 +870,7 @@
     setTimeout(() => {
       scanScheduled = false;
       runProcessPage();
-    }, 150);
+    }, SCAN_DELAY_MS);
   }
 
   // Read the saved on/off state only now that `observer` and `scheduleScan`
@@ -831,8 +891,12 @@
     });
   }
 
-  document.addEventListener('turbo:load', scheduleScan);
-  document.addEventListener('turbo:frame-load', scheduleScan);
+  const scanEverything = () => {
+    fullScanNeeded = true;
+    scheduleScan();
+  };
+  document.addEventListener('turbo:load', scanEverything);
+  document.addEventListener('turbo:frame-load', scanEverything);
 
   observer.observe(document.documentElement, { childList: true, subtree: true });
 

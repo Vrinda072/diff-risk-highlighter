@@ -136,6 +136,17 @@ The engine runs on GitHub's main thread. Line matching used to compare every rem
 
 On this extreme page most of the blocking is GitHub rendering its own diffs, and runs vary by several seconds. "Blocked" is the sum of browser long tasks (50 ms or more). Reproduce with `node scripts/measure-live.js 'ambroise-leclerc/WebFront#656' --load-all`, and add `--no-extension` for the control.
 
+**Rescanning only what changed.** GitHub streams a big pull request in a few files at a time, and the page script used to rescan every file and search the whole page for the summary bar each time, so the work grew much faster than the PR did. It now scans only the files that changed (with one full pass once the page goes quiet, as a safety net). An offline benchmark adds files one at a time and times only the extension's own code; old and new were run alternately:
+
+| Files streamed in | Before | After |
+|---|---|---|
+| 300 (React layout, 3 runs each) | 1.71 s | 1.04 s |
+| 600 (classic layout, median of 5) | 6.42 s | **2.52 s** |
+
+Compare only within a table: the same laptop ran about twice as slow in this session as in an earlier one. Reproduce with `node scripts/bench-rescan.js --files 600`.
+
+This is the extension's own time, not what a reviewer will feel on every page. In one live run each on the 287-file PR above, both versions rated the same 1,133 hunks and the page was blocked for 40.9 s (old) and 42.8 s (new): GitHub's own rendering dominates there, and the difference is within run-to-run noise.
+
 ## Install
 
 No build step, no runtime dependencies.
@@ -184,7 +195,7 @@ node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 - **"Large hunk" says little.** It was 24% of all flags in the audit, mostly new code. It is unchanged until the held-out "needs close review" labels can show whether those flags help.
 - **Reformatting that also edits code** (clang-format that moves includes or adds namespace comments next to real changes) can still be flagged. Whitespace, line wrapping and comment rewrapping are recognised; reordered imports are not, since order can matter.
 - **The shortcuts read lines, not syntax trees.** A hunk that starts in the middle of a multi-line string or comment is judged without knowing that. A whitespace-only change inside JSX text would count as formatting.
-- **Very large pages:** the extension still rescans a huge PR while GitHub streams it in (about 7 s of scanning across the 198-diff load above, of which the engine is 0.2 s). Rescanning only changed files is the next speed step.
+- **Very large pages:** each newly arrived file still redraws the summary bar, so time still grows a little faster than the number of files.
 - **Signature changes** are compared parameter by parameter, but only for declarations written with `def`, `function`, `fn` or `func`, and only when the whole parameter list is among the changed lines. Java, C and C++ methods, arrow functions, and a single parameter added inside an unchanged declaration are not seen. This is bracket matching over tokens, not a syntax tree: it needed no dependency. It was designed from three missed development fixtures (68 to 71 of 84), so that gain says nothing about new code yet.
 - **Narrow keyword lists on purpose.** Broader ones produced absurd false positives on real PRs; the cost is missing variants like `pwd`.
 - **Added locking is a nudge, not proof of a fix.** It fires on any hunk that adds a lock, including ordinary new concurrent code.

@@ -16,6 +16,9 @@
 - The options page no longer contacts Ollama unless Ollama is selected.
 - Low contrast on three options-page colors.
 
+- On huge pull requests the page script rescans only the files that changed
+  (about 60% less of its own time at 600 streamed files).
+
 ### Added
 - Signature changes are compared parameter by parameter, including wrapped
   lists, and the reason says what changed ("added parameter ctx").
