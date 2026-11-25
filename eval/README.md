@@ -59,6 +59,17 @@ be sealed (`node eval/collect.js --since <date>`, after adding these repos to
   against the separate "needs close review" labels.
 - Cohen's kappa when two people label the same PRs.
 
+## Questions fixed before labelling
+
+On the development set two signals picked fix hunks worse than chance
+([docs/ablation.md](../docs/ablation.md)): the large-hunk fallback (2 fixes in
+14 flags) and the security keyword inside a test (0 in 9). Fix labels cannot say
+whether those hunks deserve a read, so neither was changed. The scorer also
+reports the engine without each one. A signal goes only if removing it costs no
+fix-in-first-3 and no review-worthy hunks beyond what the confidence intervals
+can distinguish, and precision against "needs close review" goes up. With this
+many pull requests the answer may be "can't tell yet".
+
 ## Limits of this design
 
 - Bug-fix versus ordinary starts as a guess from the title; the labeller can

@@ -21,6 +21,11 @@ const arg = (name, fallback) => {
 };
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
+// Written down before any held-out labels existed: signals that picked fix
+// hunks worse than chance on the development set (docs/ablation.md). The
+// labels decide whether each one stays.
+const OPEN_QUESTIONS = ['large-hunk', 'security-in-test'];
+
 // The engine exactly as it was at a git ref: one file in older tags, plus
 // src/engine/ in later ones.
 function engineAt(ref) {
@@ -36,7 +41,11 @@ function engineAt(ref) {
 function loadEngines(baselineTag) {
   const engines = {};
   engines[baselineTag] = engineAt(baselineTag);
-  engines['current'] = require(path.join(ROOT, 'src', 'risk-engine.js'));
+  const current = require(path.join(ROOT, 'src', 'risk-engine.js'));
+  engines['current'] = current;
+  for (const id of OPEN_QUESTIONS) {
+    engines[`current without "${id}"`] = { assessHunk: (hunk) => current.assessHunk(hunk, { disable: [id] }) };
+  }
   return engines;
 }
 
@@ -146,4 +155,4 @@ if (require.main === module) {
   fs.writeFileSync(path.join(reports, 'latest.md'), text);
 }
 
-module.exports = { run, engineAt };
+module.exports = { run, engineAt, loadEngines, OPEN_QUESTIONS };
