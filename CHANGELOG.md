@@ -3,6 +3,10 @@
 ## 1.2.0 (not yet released)
 
 ### Fixed
+- Behavior changes were dismissed as harmless by the three shortcuts that run
+  before every other check. C pointer writes, `#define`s and `#include`s counted
+  as comments; Python dedents and edits inside strings counted as formatting;
+  `canRead` to `canWrite` counted as a mechanical rename.
 - Large hunks no longer freeze the page: line matching anchors on identical
   lines above 40,000 line pairs. Same results on 1,558 real hunks compared.
 - Fewer false alarms: edited conditions are medium "changed a condition";

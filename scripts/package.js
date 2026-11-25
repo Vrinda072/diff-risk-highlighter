@@ -51,11 +51,33 @@ function referencedFiles() {
   return [...refs];
 }
 
+// Chrome refuses to load an extension if a script holds a Unicode
+// noncharacter (U+FFFF and friends) or bytes that aren't UTF-8, and says the
+// file "isn't UTF-8 encoded". Node runs such a file without complaint.
+function unloadableFiles(files) {
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  return files.filter((f) => /\.(js|json|html|css)$/.test(f)).filter((f) => {
+    let text;
+    try {
+      text = decoder.decode(fs.readFileSync(path.join(ROOT, f)));
+    } catch (_) {
+      return true;
+    }
+    return Array.from(text).some((c) => {
+      const code = c.codePointAt(0);
+      return code === 0 || (code >= 0xfdd0 && code <= 0xfdef) || (code & 0xfffe) === 0xfffe;
+    });
+  });
+}
+
 function build() {
   const missingOnDisk = RUNTIME_FILES.filter((f) => !fs.existsSync(path.join(ROOT, f)));
   if (missingOnDisk.length) throw new Error('listed but missing: ' + missingOnDisk.join(', '));
   const unlisted = referencedFiles().filter((f) => !RUNTIME_FILES.includes(f));
   if (unlisted.length) throw new Error('referenced by the extension but not packaged: ' + unlisted.join(', '));
+
+  const unloadable = unloadableFiles(RUNTIME_FILES);
+  if (unloadable.length) throw new Error('Chrome cannot load: ' + unloadable.join(', '));
 
   const { version } = JSON.parse(read('manifest.json'));
   const dist = path.join(ROOT, 'dist');
@@ -71,4 +93,4 @@ if (require.main === module) {
   console.log(`${path.relative(ROOT, zip)}: ${files.length} files, ${(fs.statSync(zip).size / 1024).toFixed(0)} KB`);
 }
 
-module.exports = { build, referencedFiles, RUNTIME_FILES };
+module.exports = { build, referencedFiles, unloadableFiles, RUNTIME_FILES };

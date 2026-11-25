@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1068 640" width="1068" height="640" role="img" aria-labelledby="t d">
   <title id="t">How the risk engine scores a hunk</title>
-  <desc id="d">A hunk is first checked for provably safe transforms (generated or vendored file, formatting only, comments only, pure rename), which score low. Otherwise the risk detectors run and the highest severity wins. With no signal, a hunk over 40 lines of code is medium and anything else is low. The right panel lists the detectors by level.</desc>
+  <desc id="d">A hunk is first checked for safe transforms (generated or vendored file, formatting only, comments only, or a rename that is declared in the hunk), which score low. Otherwise the risk detectors run and the highest severity wins. With no signal, a hunk over 40 lines of code is medium and anything else is low. The right panel lists the detectors by level.</desc>
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#8b949e"/></marker>
     <marker id="g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1L9 5L0 9z" fill="#3fb950"/></marker>
@@ -38,9 +38,9 @@
   <text x="60" y="87" class="h">1 · One hunk</text>
   <text x="60" y="106" class="s">file path, added lines, removed lines</text>
 
-  <text x="62" y="190" class="h">2 · Provably cosmetic or generated?</text>
+  <text x="62" y="190" class="h">2 · Clearly cosmetic or generated?</text>
   <text x="62" y="212" class="m">generated or vendored file · formatting</text>
-  <text x="62" y="230" class="m">only · comments only · pure rename</text>
+  <text x="62" y="230" class="m">only · comments only · declared rename</text>
 
   <text x="60" y="321" class="h">3 · Run the risk detectors</text>
   <text x="60" y="340" class="s">every detector votes, highest severity wins</text>
@@ -112,7 +112,7 @@
 
   <circle cx="626" cy="544" r="6" fill="#3fb950"/>
   <text x="640" y="549" class="l" style="fill:#3fb950;font-size:12px">ALWAYS LOW FIRST</text>
-  <text x="626" y="574" class="m">Safe transforms are checked before any risk</text>
-  <text x="626" y="592" class="m">word, so renaming a variable called</text>
-  <text x="626" y="610" class="m"><tspan style="font-family:ui-monospace,Menlo,monospace;fill:#e6edf3">password</tspan> still scores low.</text>
+  <text x="626" y="574" class="m">Shortcuts run before any risk word, and say</text>
+  <text x="626" y="592" class="m">no when unsure. So, renamed where declared,</text>
+  <text x="626" y="610" class="m">a <tspan style="font-family:ui-monospace,Menlo,monospace;fill:#e6edf3">password</tspan> variable stays low.</text>
 </svg>
