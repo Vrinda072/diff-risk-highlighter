@@ -1,13 +1,13 @@
 // Weakened, removed or skipped test assertions.
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(require('./text.js'), require('./language.js'));
   } else {
     const parts = root.DriskhParts || (root.DriskhParts = {});
     parts.tests = factory(parts.text, parts.language);
   }
-})(typeof self !== 'undefined' ? self : this, function (textModule, languageModule) {
+})(typeof self !== 'undefined' ? self : this, function (/** @type {typeof import('./text.js')} */ textModule, /** @type {typeof import('./language.js')} */ languageModule) {
   'use strict';
 
   const { BOUNDARY_PAIR_SIMILARITY, STRING_LITERAL_RE, pairLines } = textModule;
@@ -22,15 +22,15 @@
     /_spec\.rb$|(^|\/)test_[^/]+\.rb$/,
   ];
 
-  function isTestFile(filePath) {
+  function isTestFile(/** @type {string} */ filePath) {
     return TEST_PATH_PATTERNS.some((re) => re.test(filePath || ''));
   }
 
   const ASSERTION_RE =
     /\b(assert\w*|expect|require\.\w+|XCTAssert\w*|(EXPECT|ASSERT)_[A-Z_]+|should\w*|verify)\s*[.(!]|^\s*assert\s|#expect\s*\(/;
 
-  function countAssertions(lines, lang) {
-    return lines.filter((l) => !isCommentLine(l, lang) && ASSERTION_RE.test(l.replace(STRING_LITERAL_RE, '""'))).length;
+  function countAssertions(/** @type {string[]} */ lines, /** @type {Driskh.Language} */ lang) {
+    return lines.filter((/** @type {string} */ l) => !isCommentLine(l, lang) && ASSERTION_RE.test(l.replace(STRING_LITERAL_RE, '""'))).length;
   }
 
   // Strict matcher -> matcher that accepts strictly more values.
@@ -50,13 +50,15 @@
   const SKIP_MARKER_RE =
     /\b(it|test|describe|context)\.(skip|todo)\(|\b(xit|xtest|xdescribe|xcontext)\(|@(pytest\.mark\.skip\w*|unittest\.skip\w*|skip\w*|Disabled|Ignore)\b|\[(Ignore|Skip)\b|\bt\.Skip(Now|f)?\(|\bpytest\.skip\(|\bself\.skipTest\(|#\[ignore\]/;
 
-  function assertionVerb(line) {
+  const firstMatch = (/** @type {string} */ line, /** @type {RegExp} */ re) => (line.match(re) || [''])[0];
+
+  function assertionVerb(/** @type {string} */ line) {
     const m = line.match(/\b(assert\w*|expect|require\.\w+|XCTAssert\w*|(?:EXPECT|ASSERT)_[A-Z_]+)\b/);
     return m ? m[1] : null;
   }
 
   // Common prefix/suffix split of two lines: what the edit replaced.
-  function changedMiddle(a, b) {
+  function changedMiddle(/** @type {string} */ a, /** @type {string} */ b) {
     let p = 0;
     while (p < a.length && p < b.length && a[p] === b[p]) p++;
     let s = 0;
@@ -64,12 +66,12 @@
     return [a.slice(p, a.length - s).trim(), b.slice(p, b.length - s).trim()];
   }
 
-  function weakenedAssertionInPair(removed, added, lang) {
+  function weakenedAssertionInPair(/** @type {string} */ removed, /** @type {string} */ added, /** @type {Driskh.Language} */ lang) {
     if (isCommentLine(removed, lang) || isCommentLine(added, lang)) return null;
 
     for (const [strict, loose] of LOOSENED_MATCHERS) {
       if (strict.test(removed) && !strict.test(added) && loose.test(added)) {
-        return `Assertion loosened: "${removed.match(strict)[0]}" replaced by "${added.match(loose)[0]}".`;
+        return `Assertion loosened: "${firstMatch(removed, strict)}" replaced by "${firstMatch(added, loose)}".`;
       }
     }
 
@@ -81,12 +83,12 @@
 
     if (!ASSERTION_RE.test(removed) || assertionVerb(removed) !== assertionVerb(added)) return null;
 
-    const skeleton = (l) => l.replace(STRING_LITERAL_RE, '""').replace(NUMBER_RE, 'N').replace(/\s+/g, '');
+    const skeleton = (/** @type {string} */ l) => l.replace(STRING_LITERAL_RE, '""').replace(NUMBER_RE, 'N').replace(/\s+/g, '');
     if (skeleton(removed) === skeleton(added)) {
       const rNums = removed.replace(STRING_LITERAL_RE, '""').match(NUMBER_RE) || [];
       const aNums = added.replace(STRING_LITERAL_RE, '""').match(NUMBER_RE) || [];
-      const i = rNums.findIndex((n, k) => n !== aNums[k]);
-      if (i !== -1 && rNums.filter((n, k) => n !== aNums[k]).length === 1) {
+      const i = rNums.findIndex((/** @type {string} */ n, /** @type {number} */ k) => n !== aNums[k]);
+      if (i !== -1 && rNums.filter((/** @type {string} */ n, /** @type {number} */ k) => n !== aNums[k]).length === 1) {
         const [from, to] = [parseFloat(rNums[i]), parseFloat(aNums[i])];
         const upper = UPPER_BOUND_ASSERT_RE.test(removed) || TOLERANCE_RE.test(removed);
         const lower = LOWER_BOUND_ASSERT_RE.test(removed) && !upper;
@@ -105,11 +107,11 @@
     return null;
   }
 
-  function detectWeakenedTest(filePath, removedLines, addedLines) {
+  function detectWeakenedTest(/** @type {string} */ filePath, /** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines) {
     if (!isTestFile(filePath)) return null;
 
-    const skipsAdded = addedLines.filter((l) => SKIP_MARKER_RE.test(l)).length;
-    const skipsRemoved = removedLines.filter((l) => SKIP_MARKER_RE.test(l)).length;
+    const skipsAdded = addedLines.filter((/** @type {string} */ l) => SKIP_MARKER_RE.test(l)).length;
+    const skipsRemoved = removedLines.filter((/** @type {string} */ l) => SKIP_MARKER_RE.test(l)).length;
     if (skipsAdded > skipsRemoved) return 'A test was skipped/disabled — confirm it is tracked and not just hiding a failure.';
 
     const lang = languageOf(filePath);

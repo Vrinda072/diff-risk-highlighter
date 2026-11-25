@@ -29,6 +29,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Strict checkJs over the JSDoc types in src/.
+      - run: npm run typecheck
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - run: npm run package

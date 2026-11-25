@@ -1,6 +1,6 @@
 // Levels, tokenizing and line pairing shared by the detectors.
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
   } else {
@@ -10,6 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  /** @type {{LOW: 'low', MEDIUM: 'medium', HIGH: 'high'}} */
   const LEVELS = { LOW: 'low', MEDIUM: 'medium', HIGH: 'high' };
   const LEVEL_RANK = { low: 0, medium: 1, high: 2 };
 
@@ -31,7 +32,7 @@
     'g'
   );
 
-  function tokenize(line) {
+  function tokenize(/** @type {string} */ line) {
     const tokens = [];
     let m;
     TOKEN_RE.lastIndex = 0;
@@ -66,11 +67,11 @@
   // keywords, and a class/identifier that happens to share letters with one
   // case-insensitively (e.g. a class named `Raise`, cf. django#21696's
   // `Raise` -> `FetchRaise`) is a real identifier, not the keyword.
-  function isKeyword(word) {
+  function isKeyword(/** @type {string} */ word) {
     return KEYWORDS.has(word);
   }
 
-  function bigrams(str) {
+  function bigrams(/** @type {string} */ str) {
     const counts = new Map();
     for (let i = 0; i < str.length - 1; i++) {
       const bg = str.slice(i, i + 2);
@@ -83,7 +84,9 @@
   // and good enough to tell "this is probably the edited version of that
   // line" apart from "this is an unrelated line" without a real diff algorithm.
   // A line's bigram profile is built once and reused for every comparison.
-  function lineProfile(line) {
+  /** @typedef {{trimmed: string, grams: Map<string, number>, total: number}} Profile */
+
+  function lineProfile(/** @type {string} */ line) {
     const trimmed = line.trim();
     const grams = bigrams(trimmed);
     let total = 0;
@@ -91,7 +94,7 @@
     return { trimmed, grams, total };
   }
 
-  function profileSimilarity(a, b) {
+  function profileSimilarity(/** @type {Profile} */ a, /** @type {Profile} */ b) {
     if (a.trimmed === b.trimmed) return 1;
     if (a.grams.size === 0 || b.grams.size === 0) return 0;
     let intersection = 0;
@@ -102,7 +105,7 @@
     return (2 * intersection) / (a.total + b.total);
   }
 
-  function lineSimilarity(a, b) {
+  function lineSimilarity(/** @type {any} */ a, /** @type {any} */ b) {
     return profileSimilarity(lineProfile(a), lineProfile(b));
   }
 
@@ -116,14 +119,14 @@
   const PAIR_WINDOW = 40;
 
   // For large hunks: where each identical removed line sits on the added side.
-  function exactMatches(removed, added) {
+  function exactMatches(/** @type {Profile[]} */ removed, /** @type {Profile[]} */ added) {
     const positions = new Map();
-    added.forEach((line, i) => {
+    added.forEach((/** @type {Profile} */ line, /** @type {number} */ i) => {
       if (!positions.has(line.trimmed)) positions.set(line.trimmed, []);
       positions.get(line.trimmed).push(i);
     });
     const cursor = new Map();
-    return removed.map((line) => {
+    return removed.map((/** @type {Profile} */ line) => {
       const list = positions.get(line.trimmed);
       if (!list) return -1;
       const next = cursor.get(line.trimmed) || 0;
@@ -136,13 +139,13 @@
   // Greedy best-match pairing between removed/added lines by similarity.
   // Not a real LCS/Myers diff — but "greedy nearest neighbor" is enough to
   // line up "the edited version of this line" without pulling in a diff library.
-  function pairLines(removedLines, addedLines, threshold) {
+  function pairLines(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines, /** @type {number} */ threshold) {
     const removed = removedLines.map(lineProfile);
     const added = addedLines.map(lineProfile);
     const large = removed.length * added.length > MAX_EXHAUSTIVE_PAIRS;
-    const exact = large ? exactMatches(removed, added) : null;
+    const exact = large ? exactMatches(removed, added) : [];
     const usedAdded = new Array(added.length).fill(false);
-    if (large) exact.forEach((i) => i >= 0 && (usedAdded[i] = true));
+    if (large) exact.forEach((/** @type {number} */ i) => i >= 0 && (usedAdded[i] = true));
     // wide enough that the windows still cover the added side when it is much longer
     const half = large ? Math.max(PAIR_WINDOW, Math.ceil(added.length / Math.max(1, removed.length))) : 0;
 

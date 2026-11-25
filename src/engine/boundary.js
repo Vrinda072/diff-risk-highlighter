@@ -1,13 +1,13 @@
 // Off-by-one shapes: boundary operators, shifted literals, added or removed 1.
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(require('./text.js'), require('./language.js'));
   } else {
     const parts = root.DriskhParts || (root.DriskhParts = {});
     parts.boundary = factory(parts.text, parts.language);
   }
-})(typeof self !== 'undefined' ? self : this, function (textModule, languageModule) {
+})(typeof self !== 'undefined' ? self : this, function (/** @type {typeof import('./text.js')} */ textModule, /** @type {typeof import('./language.js')} */ languageModule) {
   'use strict';
 
   const { BOUNDARY_PAIR_SIMILARITY, STRING_LITERAL_RE, pairLines, tokenize } = textModule;
@@ -47,7 +47,7 @@
 
   const VERSION_MASK = 'VERSION_LITERAL';
 
-  function maskVersionLiterals(line, filePath) {
+  function maskVersionLiterals(/** @type {string} */ line, /** @type {string} */ filePath) {
     let masked = line
       .replace(SEMVER_LITERAL_RE, VERSION_MASK)
       // `uses: actions/checkout@v3` -> `@v4`, and quoted wildcards such as
@@ -63,13 +63,13 @@
   const BOUND_IDENT_RE = /(idx|index|len|length|size|count|end|start|begin|first|last|max|min|limit|bound|offset|pos|upper|lower|stop|range|capacity|slice)/i;
   const BOUND_SYNTAX_RE = /\[|<=?|>=?|\.\./;
 
-  function looksLikeBoundExpression(tokens) {
-    return tokens.some((t) => (t.type === 'ident' && BOUND_IDENT_RE.test(t.value)) || (t.type === 'other' && BOUND_SYNTAX_RE.test(t.value)));
+  function looksLikeBoundExpression(/** @type {{type: string, value: string}[]} */ tokens) {
+    return tokens.some((/** @type {{type: string, value: string}} */ t) => (t.type === 'ident' && BOUND_IDENT_RE.test(t.value)) || (t.type === 'other' && BOUND_SYNTAX_RE.test(t.value)));
   }
 
   // If `longer` is `shorter` with exactly one `+ 1` / `- 1` token pair
   // inserted, returns that pair as a string ("+ 1" / "- 1"), else null.
-  function insertedUnitStep(shorter, longer) {
+  function insertedUnitStep(/** @type {{type: string, value: string}[]} */ shorter, /** @type {{type: string, value: string}[]} */ longer) {
     if (longer.length !== shorter.length + 2) return null;
     let p = 0;
     while (p < shorter.length && shorter[p].value === longer[p].value) p++;
@@ -81,7 +81,7 @@
     return `${op.value} 1`;
   }
 
-  function detectAddedUnitStep(removed, added, lang) {
+  function detectAddedUnitStep(/** @type {string} */ removed, /** @type {string} */ added, /** @type {Driskh.Language} */ lang) {
     if (isCommentLine(removed, lang) || isCommentLine(added, lang)) return null;
     const rTokens = tokenize(removed.replace(STRING_LITERAL_RE, '""'));
     const aTokens = tokenize(added.replace(STRING_LITERAL_RE, '""'));
@@ -101,10 +101,10 @@
   // range operator or an off-by-one-shaped integer literal change.
   // Modeled directly on alacritty#9027 (`..` -> `..=` in a range bound).
   // Also catches the added/removed `± 1` shape (detectAddedUnitStep).
-  function detectBoundaryChange(removedLines, addedLines, filePath) {
+  function detectBoundaryChange(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines, /** @type {string} */ filePath) {
     const pairs = pairLines(
-      removedLines.map((l) => maskVersionLiterals(l, filePath)),
-      addedLines.map((l) => maskVersionLiterals(l, filePath)),
+      removedLines.map((/** @type {string} */ l) => maskVersionLiterals(l, filePath)),
+      addedLines.map((/** @type {string} */ l) => maskVersionLiterals(l, filePath)),
       BOUNDARY_PAIR_SIMILARITY
     );
     for (const { removed, added } of pairs) {

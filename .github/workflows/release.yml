@@ -19,6 +19,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run typecheck
       - run: npx playwright install --with-deps chromium
       - name: Tag must match the manifest version
         run: test "v$(node -p "require('./manifest.json').version")" = "$GITHUB_REF_NAME"

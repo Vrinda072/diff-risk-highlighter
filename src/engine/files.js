@@ -1,6 +1,6 @@
 // Which files are generated, vendored or documentation.
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
   } else {
@@ -49,7 +49,7 @@
 
   const FILE_KINDS = { GENERATED: 'generated', VENDORED: 'vendored', DOCUMENTATION: 'documentation', CODE: 'code' };
 
-  function classifyFile(filePath) {
+  function classifyFile(/** @type {string} */ filePath) {
     const p = filePath || '';
     if (GENERATED_PATH_PATTERNS.some((re) => re.test(p))) return FILE_KINDS.GENERATED;
     if (VENDORED_PATH_PATTERNS.some((re) => re.test(p))) return FILE_KINDS.VENDORED;
@@ -57,7 +57,7 @@
     return FILE_KINDS.CODE;
   }
 
-  function detectGeneratedFile(filePath) {
+  function detectGeneratedFile(/** @type {string} */ filePath) {
     return classifyFile(filePath) === FILE_KINDS.GENERATED;
   }
 

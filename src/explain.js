@@ -5,7 +5,7 @@
 // shapes and error handling are unit-tested in Node (test/explain.test.js).
 // background.js loads this with importScripts().
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
   } else {
@@ -24,10 +24,12 @@
 
   const MAX_DIFF_CHARS = 6000;
 
-  function buildPrompt({ filePath, reason, addedLines, removedLines }) {
+  /** @typedef {{filePath?: string, reason?: string, addedLines?: string[], removedLines?: string[]}} ExplainHunk */
+
+  function buildPrompt(/** @type {ExplainHunk} */ { filePath, reason, addedLines, removedLines }) {
     let diff = [
-      ...(removedLines || []).map((l) => `- ${l}`),
-      ...(addedLines || []).map((l) => `+ ${l}`),
+      ...(removedLines || []).map((/** @type {string} */ l) => `- ${l}`),
+      ...(addedLines || []).map((/** @type {string} */ l) => `+ ${l}`),
     ].join('\n');
     if (diff.length > MAX_DIFF_CHARS) diff = diff.slice(0, MAX_DIFF_CHARS) + '\n... (truncated)';
     return (
@@ -41,13 +43,13 @@
   }
 
   // Some local models ("thinking" models) emit their reasoning inline.
-  function cleanText(text) {
+  function cleanText(/** @type {unknown} */ text) {
     return String(text || '')
       .replace(/<think>[\s\S]*?<\/think>/gi, '')
       .trim();
   }
 
-  async function readBody(response) {
+  async function readBody(/** @type {Response} */ response) {
     try {
       return (await response.text()).slice(0, 400);
     } catch (_) {
@@ -55,11 +57,16 @@
     }
   }
 
+  /**
+   * @param {string} error
+   * @param {string} message
+   * @param {string} [detail]
+   */
   function fail(error, message, detail) {
     return { error, message, detail };
   }
 
-  async function viaAnthropic(s, prompt, fetchImpl) {
+  async function viaAnthropic(/** @type {Driskh.ExplainSettings} */ s, /** @type {string} */ prompt, /** @type {typeof fetch} */ fetchImpl) {
     if (!s.anthropicKey) return fail('not-configured', 'Add your Anthropic API key in the extension options.');
     let res;
     try {
@@ -89,7 +96,7 @@
     return text ? { explanation: text } : fail('empty-response', 'Anthropic returned an empty answer.');
   }
 
-  async function viaGemini(s, prompt, fetchImpl) {
+  async function viaGemini(/** @type {Driskh.ExplainSettings} */ s, /** @type {string} */ prompt, /** @type {typeof fetch} */ fetchImpl) {
     if (!s.geminiKey) return fail('not-configured', 'Add your free Gemini API key in the extension options.');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(s.geminiModel)}:generateContent`;
     let res;
@@ -119,13 +126,13 @@
     }
     const data = await res.json();
     const parts = (data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
-    const text = cleanText(parts.map((p) => p.text || '').join(''));
+    const text = cleanText(parts.map((/** @type {{text?: string}} */ p) => p.text || '').join(''));
     if (text) return { explanation: text };
     const why = data && data.candidates && data.candidates[0] && data.candidates[0].finishReason;
     return fail('empty-response', `Gemini returned no text${why ? ` (${why})` : ''}.`);
   }
 
-  async function viaOllama(s, prompt, fetchImpl) {
+  async function viaOllama(/** @type {Driskh.ExplainSettings} */ s, /** @type {string} */ prompt, /** @type {typeof fetch} */ fetchImpl) {
     const base = String(s.ollamaUrl || DEFAULTS.ollamaUrl).replace(/\/+$/, '');
     let res;
     try {
@@ -165,7 +172,7 @@
   // `stored` is whatever is in chrome.storage.local: the new `driskhSettings`
   // object, plus the legacy `driskhApiKey` from when Anthropic was the only
   // option (kept working so nobody has to re-enter it).
-  function resolveSettings(stored) {
+  function resolveSettings(/** @type {Record<string, any> | null=} */ stored) {
     const s = { ...DEFAULTS, ...((stored && stored.driskhSettings) || {}) };
     if (!s.provider && stored && stored.driskhApiKey) {
       s.provider = 'anthropic';
@@ -176,7 +183,7 @@
 
   // The one origin the chosen provider needs. The extension asks Chrome for it
   // only when the user picks that provider. null = nothing to ask for.
-  function originFor(settings) {
+  function originFor(/** @type {Partial<Driskh.ExplainSettings>} */ settings) {
     const s = { ...DEFAULTS, ...settings };
     if (s.provider === 'anthropic') return 'https://api.anthropic.com/*';
     if (s.provider === 'gemini') return 'https://generativelanguage.googleapis.com/*';
@@ -193,6 +200,11 @@
     return null;
   }
 
+  /**
+   * @param {Partial<Driskh.ExplainSettings>} settings
+   * @param {ExplainHunk} hunk
+   * @param {typeof fetch} [fetchImpl] injected by the tests
+   */
   async function explain(settings, hunk, fetchImpl) {
     const s = { ...DEFAULTS, ...settings };
     const doFetch = fetchImpl || ((...args) => fetch(...args));

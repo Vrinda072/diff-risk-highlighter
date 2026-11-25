@@ -3,7 +3,9 @@
 // so this lives in its own file.
 
 (function () {
-  const $ = (id) => document.getElementById(id);
+  // Every id used here exists in options.html; typed as an input for .value and .disabled.
+  const $ = (/** @type {string} */ id) => /** @type {HTMLInputElement} */ (document.getElementById(id));
+  const radio = (/** @type {string} */ selector) => /** @type {HTMLInputElement | null} */ (document.querySelector(`input[name="provider"]${selector}`));
   const FIELDS = ['ollamaUrl', 'ollamaModel', 'geminiKey', 'geminiModel', 'anthropicKey', 'anthropicModel'];
   const SAMPLE_HUNK = {
     filePath: 'app/db.py',
@@ -13,17 +15,22 @@
   };
 
   const status = $('status');
+  /**
+   * @param {string} text
+   * @param {string} [kind]
+   */
   function say(text, kind) {
     status.textContent = text;
     status.className = kind || '';
   }
 
   function selectedProvider() {
-    const checked = document.querySelector('input[name="provider"]:checked');
+    const checked = radio(':checked');
     return checked ? checked.value : '';
   }
 
   function readForm() {
+    /** @type {Record<string, string>} */
     const settings = { provider: selectedProvider() };
     for (const id of FIELDS) {
       const v = $(id).value.trim();
@@ -32,10 +39,11 @@
     return settings;
   }
 
-  function fillForm(s) {
-    for (const id of FIELDS) $(id).value = s[id] || '';
-    const radio = document.querySelector(`input[name="provider"][value="${s.provider}"]`);
-    if (radio) radio.checked = true;
+  function fillForm(/** @type {Driskh.ExplainSettings} */ s) {
+    const values = /** @type {Record<string, string | undefined>} */ (/** @type {unknown} */ (s));
+    for (const id of FIELDS) $(id).value = values[id] || '';
+    const chosen = radio(`[value="${s.provider}"]`);
+    if (chosen) chosen.checked = true;
   }
 
   async function load() {
@@ -57,9 +65,9 @@
         return;
       }
       const data = await res.json();
-      const names = (data.models || []).map((m) => m.name);
+      const names = (data.models || []).map((/** @type {any} */ m) => m.name);
       $('ollamaModels').replaceChildren(
-        ...names.map((n) => Object.assign(document.createElement('option'), { value: n }))
+        ...names.map((/** @type {string} */ n) => Object.assign(document.createElement('option'), { value: n }))
       );
       hint.textContent = names.length ? `(installed: ${names.join(', ')})` : '(no models installed yet)';
     } catch (_) {
@@ -91,14 +99,15 @@
   // user exports it.
   const FEEDBACK_KEY = 'driskhFeedback';
 
+  /** @returns {Promise<{verdict: string}[]>} */
   async function readFeedback() {
     const stored = await chrome.storage.local.get({ [FEEDBACK_KEY]: [] });
-    return stored[FEEDBACK_KEY] || [];
+    return /** @type {{verdict: string}[]} */ (stored[FEEDBACK_KEY] || []);
   }
 
   async function showFeedbackCount() {
     const items = await readFeedback();
-    const useful = items.filter((f) => f.verdict === 'useful').length;
+    const useful = items.filter((/** @type {any} */ f) => f.verdict === 'useful').length;
     $('feedbackCount').textContent = items.length
       ? `${items.length} saved on this computer: ${useful} useful, ${items.length - useful} not useful.`
       : 'Nothing saved yet. Press a HIGH or MEDIUM badge on a pull request to mark it.';
@@ -137,7 +146,7 @@
   $('save').addEventListener('click', save);
   $('test').addEventListener('click', saveAndTest);
   $('ollamaUrl').addEventListener('change', refreshOllamaModels);
-  document.querySelector('input[name="provider"][value="ollama"]').addEventListener('change', refreshOllamaModels);
+  radio('[value="ollama"]')?.addEventListener('change', refreshOllamaModels);
   $('exportFeedback').addEventListener('click', exportFeedback);
   $('clearFeedback').addEventListener('click', clearFeedback);
   load();

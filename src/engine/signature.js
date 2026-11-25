@@ -1,6 +1,6 @@
 // Changed function signatures.
 
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
   } else {
@@ -13,7 +13,7 @@
   const FUNCTION_DECL_RE =
     /\b(?:def|function|fn|func)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)/;
 
-  function extractSignatures(lines) {
+  function extractSignatures(/** @type {string[]} */ lines) {
     const sigs = new Map();
     for (const line of lines) {
       const m = FUNCTION_DECL_RE.exec(line);
@@ -22,7 +22,7 @@
     return sigs;
   }
 
-  function detectSignatureChange(removedLines, addedLines) {
+  function detectSignatureChange(/** @type {string[]} */ removedLines, /** @type {string[]} */ addedLines) {
     const removedSigs = extractSignatures(removedLines);
     const addedSigs = extractSignatures(addedLines);
     for (const [name, oldParams] of removedSigs) {
