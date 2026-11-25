@@ -38,6 +38,16 @@
         "https://github.com/*/*/pull/*"
       ],
       "js": [
+        "src/engine/text.js",
+        "src/engine/language.js",
+        "src/engine/files.js",
+        "src/engine/shortcuts.js",
+        "src/engine/boundary.js",
+        "src/engine/logic.js",
+        "src/engine/security.js",
+        "src/engine/tests.js",
+        "src/engine/concurrency.js",
+        "src/engine/signature.js",
         "src/risk-engine.js",
         "src/content.js"
       ],
