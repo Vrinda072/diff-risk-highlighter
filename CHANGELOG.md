@@ -17,6 +17,11 @@
 - Low contrast on three options-page colors.
 
 ### Added
+- Signature changes are compared parameter by parameter, including wrapped
+  lists, and the reason says what changed ("added parameter ctx").
+- `docs/ablation.md`: what each detector contributes on the development set.
+- A strict TypeScript check of JSDoc types in CI. The engine is split into one
+  file per concern.
 - The badge is a button that shows its reason, usable by keyboard and screen readers.
 - Useful / Not useful feedback, stored locally, exportable.
 - The Explain button names the provider; provider access is optional and

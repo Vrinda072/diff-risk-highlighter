@@ -5,7 +5,7 @@ extension's ordering put the real fix among them more often than GitHub's own
 order does?
 
 The 42 pull requests in `test/fixtures/real-prs/` informed the heuristics, so
-their 68 of 84 fix-hunk figure describes the development set. It says nothing
+their 71 of 84 fix-hunk figure describes the development set. It says nothing
 about new code. This folder measures new code.
 
 ## What is sealed

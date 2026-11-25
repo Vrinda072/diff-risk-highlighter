@@ -39,8 +39,8 @@ describe('fix recall / noise ratchet over all fixtures', () => {
     { fixes: 0, flagged: 0, noiseHigh: 0 }
   );
 
-  it('flags at least 68 of the 84 real-fix hunks', () => {
-    assert.ok(total.flagged >= 68, `flagged ${total.flagged}/${total.fixes}`);
+  it('flags at least 71 of the 84 real-fix hunks', () => {
+    assert.ok(total.flagged >= 71, `flagged ${total.flagged}/${total.fixes}`);
   });
 
   it('keeps high-risk noise (non-fix hunks flagged high) at or below 6', () => {
