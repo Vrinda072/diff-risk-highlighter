@@ -790,3 +790,62 @@ describe('v1.1 layers: identifiers, test files, quote style, added locking', () 
     assert.equal(result.level, 'low');
   });
 });
+
+// Precision fixes from the 94-PR audit (development data).
+describe('edited conditions are not "removed" conditions', () => {
+  const py = (removedLines, addedLines) => assessHunk({ filePath: 'app/pay.py', removedLines, addedLines });
+
+  it('a condition that was rewritten is a medium "changed a condition", not a high removal', () => {
+    const r = py(['    if user is None:', '        return None'], ['    if user is None or user.banned:', '        return None']);
+    assert.equal(r.level, 'medium');
+    assert.match(r.reason, /Changed a condition/);
+  });
+
+  it('the same conditions re-indented or moved raise no conditional flag', () => {
+    const r = py(['if a:', '    run(a)', 'if b:', '    run(b)'], ['    if b:', '        run(b)', '    if a:', '        run(a)']);
+    assert.doesNotMatch(r.reason, /condition/i);
+  });
+
+  it('conditions that disappear on balance are still flagged high', () => {
+    const r = py(['    if amount <= 0:', '        raise ValueError(amount)', '    charge(amount)'], ['    charge(amount)']);
+    assert.equal(r.level, 'high');
+    assert.match(r.reason, /Removed a conditional/);
+  });
+});
+
+describe('SQL detector ignores look-alikes but still sees partial queries', () => {
+  const sql = (filePath, addedLines) => /SQL/.test(assessHunk({ filePath, removedLines: [], addedLines }).reason);
+
+  it("not Python imports next to .update() and an f-string", () => {
+    assert.equal(sql('jobs.py', ['from concurrent.futures import ThreadPoolExecutor', 'state.update(values)', 'name = f"worker-{n}"', 'where = locate(name)']), false);
+  });
+  it('not an ORM insert call or a hash update', () => {
+    assert.equal(sql('audit.js', ["await db.from('audit_logs').insert({ id })", 'const h = hash.update(`${id}`)']), false);
+  });
+  it('a query whose FROM line is unchanged context (SELECT + WHERE only, VIP-portal#698)', () => {
+    assert.equal(sql('Dao.java', ['String q = "SELECT DISTINCT first_name "', '        + "WHERE email IN (" + list + ") ";']), true);
+  });
+  it('a lowercase hand-written query built by concatenation', () => {
+    assert.equal(sql('db.py', ['q = "select * from users where id=" + user_id']), true);
+  });
+});
+
+describe('version bumps in config files and package names', () => {
+  const level = (filePath, before, after) => assessHunk({ filePath, removedLines: [before], addedLines: [after] }).level;
+
+  it('a GitHub Actions ref bump is not an off-by-one', () => {
+    assert.equal(level('.github/workflows/ci.yml', '      - uses: ramsey/composer-install@v3', '      - uses: ramsey/composer-install@v4'), 'low');
+  });
+  it('a quoted wildcard version bump is not an off-by-one', () => {
+    assert.equal(level('.github/workflows/ci.yml', "          SYMFONY_REQUIRE: '6.4.*'", "          SYMFONY_REQUIRE: '7.4.*'"), 'low');
+  });
+  it('a package name containing "oauth2" in a dependency manifest is not security-sensitive code', () => {
+    assert.equal(level('composer.json', '"league/oauth2-server-bundle": "^1.2|^2.0",', '"league/oauth2-server-bundle": "^2.0",'), 'low');
+  });
+  it('the same words in source code are still high', () => {
+    assert.equal(level('src/auth.ts', 'const client = oauth(config);', 'const client = oauth(config, { insecure: true });'), 'high');
+  });
+  it('Fortran or C arithmetic such as 2.*x is not mistaken for a wildcard version', () => {
+    assert.equal(_internal.maskVersionLiterals('y = 2.*x + 1', 'solver.F90'), 'y = 2.*x + 1');
+  });
+});
