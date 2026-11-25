@@ -45,7 +45,8 @@
   // Longest-first so e.g. "..=" is matched whole rather than as ".." + "=".
   const MULTI_CHAR_OPERATORS = [
     '..=', '===', '!==', '<=', '>=', '==', '!=', '&&', '||', '=>', '->',
-    '::', '..', '++', '--', '+=', '-=', '*=', '/=', '**',
+    '::', '..', '++', '--', '+=', '-=', '*=', '/=', '**', '<<', '>>', '??', '?.',
+    ':=', '<-', '|=', '&=', '^=', '%=',
   ].sort((a, b) => b.length - a.length);
 
   const TOKEN_RE = new RegExp(
@@ -210,31 +211,235 @@
   }
 
   // ---------------------------------------------------------------------
-  // Safe-transform detectors: hunks that are provably behavior-preserving,
-  // so they short-circuit to LOW before any keyword scan runs. (A pure
-  // rename of a variable called `password` still scores low — the
-  // logic didn't change just because the word is scary.)
+  // Language facts the safe-transform detectors depend on. What counts as a
+  // comment, and whether whitespace or line breaks change behavior, differs
+  // by language: `*len = n;` is code in C, `--count;` is a decrement, and a
+  // Python or YAML dedent moves a line into a different block.
   // ---------------------------------------------------------------------
 
-  // Interpolation/escape characters make quote style semantic (`"$x"` vs
-  // `'$x'` differ in shell, Ruby, PHP, Perl), so quotes only count as
-  // cosmetic when none are present (Prettier's quote normalization, passcore#150).
-  const QUOTE_SEMANTIC_RE = /[$`\\]|#\{/;
+  const extensions = (list) => new Set(list.split(' '));
+  // Whitespace between tokens and most line breaks don't matter.
+  const FREE_LAYOUT = extensions('js jsx mjs cjs ts tsx mts cts java c h cc cpp cxx hh hpp hxx m mm cs go rs swift kt kts scala dart proto groovy gradle php zig sol json sql');
+  // Spacing or line breaks can matter, but leading indentation doesn't.
+  const LINE_LAYOUT = extensions('rb rake sh bash zsh fish pl pm r ps1 ex exs css scss less html htm xml svg vue svelte tf cmake dockerfile lua md markdown mdx rst txt');
+  // "x" and 'x' are the same string.
+  const SAME_QUOTES = extensions('js jsx mjs cjs ts tsx mts cts py pyi');
+  const C_COMMENTS = extensions('js jsx mjs cjs ts tsx mts cts java c h cc cpp cxx hh hpp hxx m mm cs go rs swift kt kts scala dart proto groovy gradle php zig sol scss less vue svelte json');
+  const HASH_COMMENTS = extensions('py pyi rb rake sh bash zsh fish pl pm r ps1 ex exs yml yaml toml tf cmake dockerfile makefile mk nim coffee gd php ini cfg conf properties env gitignore');
+  const DASH_COMMENTS = extensions('sql lua hs elm ada');
+  const MARKUP_COMMENTS = extensions('html htm xml svg vue svelte md markdown mdx');
 
-  function normalizeForFormatting(lines) {
-    const joined = lines.join('\n');
-    let out = joined
-      .replace(/\s+/g, '')
-      .replace(/,+([)\]}])/g, '$1'); // trailing commas are cosmetic (see passcore#150 fixture)
-    if (!QUOTE_SEMANTIC_RE.test(joined)) out = out.replace(/"/g, "'");
-    return out;
+  function extensionOf(filePath) {
+    const name = (filePath || '').split('/').pop().toLowerCase();
+    if (name === 'dockerfile' || name === 'makefile') return name;
+    const dot = name.lastIndexOf('.');
+    return dot === -1 ? '' : name.slice(dot + 1);
   }
 
-  function detectFormattingOnly(removedLines, addedLines) {
-    if (removedLines.length === 0 || addedLines.length === 0) return false;
-    const r = normalizeForFormatting(removedLines);
-    const a = normalizeForFormatting(addedLines);
-    return r.length > 0 && r === a;
+  function languageOf(filePath) {
+    const ext = extensionOf(filePath);
+    let layout = 'indented'; // unknown languages: assume indentation and spacing matter
+    if (ext === 'py' || ext === 'pyi') layout = 'python';
+    else if (FREE_LAYOUT.has(ext)) layout = 'free';
+    else if (LINE_LAYOUT.has(ext)) layout = 'lines';
+    const known = C_COMMENTS.has(ext) || HASH_COMMENTS.has(ext) || DASH_COMMENTS.has(ext) || MARKUP_COMMENTS.has(ext) || ext === 'css';
+    return {
+      ext,
+      layout,
+      sameQuotes: SAME_QUOTES.has(ext),
+      slash: C_COMMENTS.has(ext) || !known,
+      block: C_COMMENTS.has(ext) || ext === 'css' || !known,
+      hash: HASH_COMMENTS.has(ext),
+      dash: DASH_COMMENTS.has(ext),
+      markup: MARKUP_COMMENTS.has(ext) || !known,
+      unknown: !known,
+    };
+  }
+
+  // Is this whole line a comment? When unsure the answer is no: calling code
+  // a comment hides a change, while the reverse only costs a closer look.
+  function isCommentLine(line, lang) {
+    const t = line.trim();
+    if (t === '') return false;
+    // Comment-shaped lines that the toolchain executes.
+    if (/^(#!|\/\/go:|\/\/\s*\+build)/.test(t)) return false;
+    if (lang.slash && t.startsWith('//')) return true;
+    if (lang.block) {
+      const opens = t.startsWith('/*');
+      // " * continued text" inside a block comment, but not `*ptr = 0;` or `* {`.
+      // In a stylesheet `* { ... }` is also the universal selector.
+      const selector = /^(css|scss|less)$/.test(lang.ext) && t.includes('{');
+      const continues = t === '*' || t.startsWith('*/') || (/^\*\s/.test(t) && !/[;{]$/.test(t) && !selector);
+      if (opens || continues) {
+        const close = t.lastIndexOf('*/');
+        if (close === -1) return true;
+        const rest = t.slice(close + 2).trim();
+        return rest === '' || rest.startsWith('//');
+      }
+    }
+    if (lang.hash && t.startsWith('#') && !(lang.ext === 'php' && t.startsWith('#['))) return true;
+    if (lang.unknown && /^#(\s|$)/.test(t)) return true;
+    if (lang.dash && t.startsWith('--')) return true;
+    if (lang.markup && t.startsWith('<!--')) return true;
+    if (lang.layout === 'python' && (t.startsWith('"' + '""') || t.startsWith("'''"))) return true;
+    return false;
+  }
+
+  // A small lexer for comparing two versions of a hunk. Strings are single
+  // tokens kept verbatim. Anything it can't close (a string cut off by the
+  // hunk boundary) is also kept verbatim to the end of its line, so unclear
+  // input never compares as equal by accident.
+  const lexerCache = new Map();
+
+  function lexerFor(lang) {
+    if (lexerCache.has(lang.ext)) return lexerCache.get(lang.ext);
+    const parts = [];
+    const add = (type, source) => parts.push(`(?<${type}>${source})`);
+    const comments = [];
+    if (lang.block) comments.push(String.raw`\/\*[\s\S]*?\*\/`);
+    if (lang.slash) comments.push(String.raw`(?<=^|[\s;{}(),])\/\/[^\n]*`);
+    if (lang.layout === 'python') comments.push(String.raw`#[^\n]*`);
+    else if (lang.hash) comments.push(String.raw`(?<=^|\s)#(?!\[)[^\n]*`);
+    if (lang.dash) comments.push(String.raw`--[^\n]*`);
+    if (comments.length) add('comment', comments.join('|'));
+    const strings = [];
+    if (lang.layout === 'python') strings.push(String.raw`""` + String.raw`"[\s\S]*?""` + '"', String.raw`'''[\s\S]*?'''`, '(?:""' + '"|\'\'\')[^\\n]*');
+    if (/^[cm]?[jt]sx?$/.test(lang.ext)) {
+      // A regex literal, so a quote inside it doesn't open a "string".
+      strings.push(String.raw`(?<=[(=,:!&|?;{\[]\s*)\/(?![\/*\s])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^\/\\\n\[])+\/[a-z]*`);
+    }
+    strings.push(String.raw`"(?:[^"\\\n]|\\[\s\S])*"`, String.raw`'(?:[^'\\\n]|\\[\s\S])*'`, '`(?:[^`\\\\]|\\\\[\\s\\S])*`', '["\'`][^\\n]*');
+    add('string', strings.join('|'));
+    add('newline', String.raw`\n`);
+    add('ident', String.raw`[A-Za-z_$\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*`);
+    add('number', String.raw`\d[\w.]*`);
+    add('other', MULTI_CHAR_OPERATORS.map((op) => op.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + String.raw`|\S`);
+    const lexer = { re: new RegExp(parts.join('|'), 'gm'), types: parts.map((part) => part.slice(3, part.indexOf('>'))) };
+    lexerCache.set(lang.ext, lexer);
+    return lexer;
+  }
+
+  function lex(text, lang) {
+    const { re, types } = lexerFor(lang);
+    re.lastIndex = 0;
+    const tokens = [];
+    let line = 0;
+    let m;
+    while ((m = re.exec(text))) {
+      const value = m[0];
+      let type;
+      for (let i = 0; i < types.length && type === undefined; i++) {
+        if (m.groups[types[i]] !== undefined) type = types[i];
+      }
+      tokens.push({ type, value, line });
+      for (let i = value.indexOf('\n'); i !== -1; i = value.indexOf('\n', i + 1)) line++;
+    }
+    return tokens;
+  }
+
+  // ---------------------------------------------------------------------
+  // Safe-transform detectors: hunks that can be shown to keep behavior from
+  // the changed lines alone. They short-circuit to LOW before any other
+  // check runs, so each one has to say "no" whenever it isn't sure.
+  // ---------------------------------------------------------------------
+
+  const OPENERS = { ')': '(', ']': '[', '}': '{' };
+
+  // Drops cosmetic trailing commas (see passcore#150 fixture). `(x,)` is
+  // kept unless it is a call: in Python and Rust that comma makes a tuple.
+  function dropTrailingCommas(tokens) {
+    const code = tokens.filter((t) => t.type !== 'comment' && t.type !== 'newline');
+    const drop = new Set();
+    const stack = [];
+    code.forEach((token, i) => {
+      const v = token.value;
+      if (v === '(' || v === '[' || v === '{') {
+        stack.push({ open: v, at: i, commas: 0 });
+      } else if (v === ',') {
+        if (stack.length) stack[stack.length - 1].commas++;
+        if (code[i + 1] && OPENERS[code[i + 1].value] && code[i + 1].value !== ')') drop.add(token);
+      } else if (OPENERS[v]) {
+        const group = stack.pop();
+        const previous = code[i - 1];
+        if (v !== ')' || !previous || previous.value !== ',') return;
+        const before = group && code[group.at - 1];
+        const isCall = before && (before.type === 'ident' || before.value === ')' || before.value === ']');
+        if (!group || group.commas > 1 || isCall) drop.add(previous);
+      }
+    });
+    return tokens.filter((t) => !drop.has(t));
+  }
+
+  function normalizeQuotes(value) {
+    const m = /^"([^"'$`\\\n]*)"$/.exec(value);
+    return m ? `'${m[1]}'` : value;
+  }
+
+  // A line break right after these ends the statement in JavaScript and
+  // friends, so `return value` and `return` / `value` differ.
+  const ENDS_STATEMENT = new Set(['return', 'break', 'continue', 'throw', 'yield']);
+
+  // What the code means (as far as layout goes) and what its comments say.
+  function layoutSignature(lines, lang) {
+    if (lang.layout === 'lines' || lang.layout === 'indented') {
+      const kept = lines.map((l) => (lang.layout === 'lines' ? l.trim() : l.trimEnd())).filter((l) => l.trim() !== '');
+      return { code: kept.join('\n'), comments: '' };
+    }
+
+    const tokens = dropTrailingCommas(lex(lines.join('\n'), lang));
+    const comments = tokens
+      .filter((t) => t.type === 'comment')
+      .map((t) => t.value.replace(/^(\/\/+|\/\*+|#+|--+)|\*+\/$/g, '').replace(/^\s*\*+(?=\s|$)/gm, ''))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const text = (t) => (lang.sameQuotes && t.type === 'string' ? normalizeQuotes(t.value) : t.value);
+    const code = [];
+
+    if (lang.layout === 'python') {
+      // Indentation of every logical line (breaks inside brackets don't count).
+      let depth = 0;
+      let startOfLine = true;
+      let previous = null;
+      for (const t of tokens) {
+        if (t.type === 'comment') continue;
+        if (t.type === 'newline') {
+          if (depth === 0 && previous !== '\\') startOfLine = true;
+          continue;
+        }
+        if (startOfLine) {
+          code.push('\n' + lines[t.line].match(/^\s*/)[0] + '|');
+          startOfLine = false;
+        }
+        if (t.value === '(' || t.value === '[' || t.value === '{') depth++;
+        else if (OPENERS[t.value]) depth = Math.max(0, depth - 1);
+        previous = t.value;
+        if (t.value !== '\\') code.push(text(t));
+      }
+    } else {
+      tokens.forEach((t, i) => {
+        if (t.type === 'comment' || t.type === 'newline') return;
+        code.push(text(t));
+        const next = tokens[i + 1];
+        if (ENDS_STATEMENT.has(t.value) && (!next || next.type === 'newline' || next.type === 'comment')) code.push('<end>');
+      });
+    }
+    return { code: code.join('\u0000'), comments };
+  }
+
+  // 'formatting': only layout differs. 'comments': the code is the same but
+  // comment text changed too. null: anything else.
+  function compareLayout(removedLines, addedLines, filePath) {
+    if (removedLines.length === 0 || addedLines.length === 0) return null;
+    const lang = languageOf(filePath);
+    const before = layoutSignature(removedLines, lang);
+    const after = layoutSignature(addedLines, lang);
+    if (before.code === '' || before.code !== after.code) return null;
+    return before.comments === after.comments ? 'formatting' : 'comments';
+  }
+
+  function detectFormattingOnly(removedLines, addedLines, filePath) {
+    return compareLayout(removedLines, addedLines, filePath) === 'formatting';
   }
 
   // ---------------------------------------------------------------------
@@ -308,53 +513,89 @@
     return classifyFile(filePath) === FILE_KINDS.GENERATED;
   }
 
-  const COMMENT_LINE_RE = /^\s*(#|\/\/|\/\*|\*|--|;|"""|''')/;
-
-  function detectCommentOnly(removedLines, addedLines) {
+  function detectCommentOnly(removedLines, addedLines, filePath) {
+    const lang = languageOf(filePath);
     const all = [...removedLines, ...addedLines].filter((l) => l.trim() !== '');
     if (all.length === 0) return false;
-    return all.every((l) => COMMENT_LINE_RE.test(l));
+    return all.every((l) => isCommentLine(l, lang));
   }
 
-  // Checks whether every non-identical removed/added line pair differs
-  // *only* by consistent identifier substitution (same old name always
-  // maps to the same new name, and vice versa) — i.e. a mechanical rename,
-  // not a rewrite that happens to keep the line short.
-  function detectPureRename(removedLines, addedLines) {
-    if (removedLines.length === 0 || removedLines.length !== addedLines.length) return false;
+  const DECLARED_NAME_RE =
+    /(?:\b(?:def|class|function|fn|func|struct|enum|trait|interface|type|const|let|var|val|record|module)\s+(?:mut\s+|\*\s*)?|\bfunc\s+\([^)]*\)\s*)([A-Za-z_$][\w$]*)/g;
+  // Python module constant: `RAISE = Raise()` at column 0.
+  const PY_CONSTANT_RE = /^([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=(?!=)/;
 
-    const pairs = pairLines(removedLines, addedLines, RENAME_PAIR_SIMILARITY);
-    if (pairs.length !== removedLines.length) return false;
+  // The names a line defines, as opposed to merely uses.
+  function declaredNames(line, lang) {
+    const names = new Set(Array.from(line.matchAll(DECLARED_NAME_RE), (m) => m[1]));
+    const constant = lang.layout === 'python' && PY_CONSTANT_RE.exec(line);
+    if (constant) names.add(constant[1]);
+    return names;
+  }
 
+  // If every difference is one identifier consistently swapped for another,
+  // returns the swaps. `proven` means each swapped name is also declared on
+  // a changed line, so it is a rename. A swap only at places that *use* a
+  // name looks the same as calling something else (`canRead` -> `canWrite`),
+  // which no reading of the hunk alone can rule out.
+  function describeRename(removedLines, addedLines, filePath) {
+    if (removedLines.length === 0 || removedLines.length !== addedLines.length) return null;
+    const lang = languageOf(filePath);
     const mapping = new Map();
     const reverseMapping = new Map();
-    let sawDifference = false;
+    const unchanged = new Set();
+    const strings = [];
 
-    for (const { removed, added } of pairs) {
-      if (removed.trim() === added.trim()) continue;
-
-      const rTokens = tokenize(removed);
-      const aTokens = tokenize(added);
-      if (rTokens.length !== aTokens.length) return false;
+    // A rename keeps line order, so the nth removed line pairs with the nth added.
+    for (let line = 0; line < removedLines.length; line++) {
+      const removed = removedLines[line];
+      const added = addedLines[line];
+      if ((lang.layout === 'python' || lang.layout === 'indented') && removed.match(/^\s*/)[0] !== added.match(/^\s*/)[0]) {
+        return null;
+      }
+      const code = (l) => lex(l, lang).filter((t) => t.type !== 'comment');
+      const rTokens = code(removed);
+      const aTokens = code(added);
+      if (rTokens.length !== aTokens.length) return null;
 
       for (let i = 0; i < rTokens.length; i++) {
         const rt = rTokens[i];
         const at = aTokens[i];
-        if (rt.type !== at.type) return false;
-        if (rt.value === at.value) continue;
-
-        if (rt.type !== 'ident') return false; // punctuation/operator/number changed -> real edit
-        if (isKeyword(rt.value) || isKeyword(at.value)) return false;
-
-        if (mapping.has(rt.value) && mapping.get(rt.value) !== at.value) return false;
-        if (reverseMapping.has(at.value) && reverseMapping.get(at.value) !== rt.value) return false;
+        if (rt.type !== at.type) return null;
+        if (rt.value === at.value) {
+          if (rt.type === 'ident') unchanged.add(rt.value);
+          continue;
+        }
+        if (rt.type === 'string') {
+          strings.push([rt.value.slice(1, -1), at.value.slice(1, -1)]);
+          continue;
+        }
+        if (rt.type !== 'ident') return null; // punctuation/operator/number changed -> real edit
+        if (isKeyword(rt.value) || isKeyword(at.value)) return null;
+        if (mapping.has(rt.value) && mapping.get(rt.value) !== at.value) return null;
+        if (reverseMapping.has(at.value) && reverseMapping.get(at.value) !== rt.value) return null;
         mapping.set(rt.value, at.value);
         reverseMapping.set(at.value, rt.value);
-        sawDifference = true;
       }
     }
 
-    return sawDifference;
+    if (mapping.size === 0) return null;
+    // A name kept in one place and swapped in another isn't a rename.
+    for (const [from, to] of mapping) {
+      if (unchanged.has(from) || unchanged.has(to)) return null;
+    }
+    // A string may only change if it spells out a renamed name ("RAISE").
+    if (!strings.every(([from, to]) => mapping.get(from) === to)) return null;
+
+    const renames = [...mapping];
+    const declared = removedLines.map((l, i) => [declaredNames(l, lang), declaredNames(addedLines[i], lang)]);
+    const proven = renames.every(([from, to]) => declared.some(([before, after]) => before.has(from) && after.has(to)));
+    return { proven, renames };
+  }
+
+  function detectPureRename(removedLines, addedLines, filePath) {
+    const rename = describeRename(removedLines, addedLines, filePath);
+    return Boolean(rename && rename.proven);
   }
 
   // ---------------------------------------------------------------------
@@ -440,8 +681,8 @@
     return `${op.value} 1`;
   }
 
-  function detectAddedUnitStep(removed, added) {
-    if (COMMENT_LINE_RE.test(removed) || COMMENT_LINE_RE.test(added)) return null;
+  function detectAddedUnitStep(removed, added, lang) {
+    if (isCommentLine(removed, lang) || isCommentLine(added, lang)) return null;
     const rTokens = tokenize(removed.replace(STRING_LITERAL_RE, '""'));
     const aTokens = tokenize(added.replace(STRING_LITERAL_RE, '""'));
     const addedStep = insertedUnitStep(rTokens, aTokens);
@@ -469,7 +710,7 @@
     for (const { removed, added } of pairs) {
       if (removed.trim() === added.trim()) continue;
 
-      const unitStep = detectAddedUnitStep(removed, added);
+      const unitStep = detectAddedUnitStep(removed, added, languageOf(filePath));
       if (unitStep) return unitStep;
 
       const rTokens = tokenize(removed);
@@ -586,8 +827,8 @@
   // joined with `+`), so this can't require everything on one line. A small
   // sliding window is the middle ground: real query construction sits close
   // together; incidental matches scattered across a large hunk mostly don't.
-  function hasSqlShape(lines) {
-    const code = lines.filter((l) => !IMPORT_LINE_RE.test(l) && !COMMENT_LINE_RE.test(l));
+  function hasSqlShape(lines, lang) {
+    const code = lines.filter((l) => !IMPORT_LINE_RE.test(l) && !isCommentLine(l, lang));
     for (let start = 0; start < code.length; start++) {
       const windowText = code.slice(start, start + SQL_WINDOW_SIZE).join('\n');
       const looksLikeSql =
@@ -597,8 +838,9 @@
     return false;
   }
 
-  function detectSqlInjectionShape(removedLines, addedLines) {
-    return hasSqlShape(removedLines) || hasSqlShape(addedLines);
+  function detectSqlInjectionShape(removedLines, addedLines, filePath) {
+    const lang = languageOf(filePath);
+    return hasSqlShape(removedLines, lang) || hasSqlShape(addedLines, lang);
   }
 
   // Curated for low collision with everyday code, based on real false
@@ -649,8 +891,8 @@
   const ASSERTION_RE =
     /\b(assert\w*|expect|require\.\w+|XCTAssert\w*|(EXPECT|ASSERT)_[A-Z_]+|should\w*|verify)\s*[.(!]|^\s*assert\s|#expect\s*\(/;
 
-  function countAssertions(lines) {
-    return lines.filter((l) => !COMMENT_LINE_RE.test(l) && ASSERTION_RE.test(l.replace(STRING_LITERAL_RE, '""'))).length;
+  function countAssertions(lines, lang) {
+    return lines.filter((l) => !isCommentLine(l, lang) && ASSERTION_RE.test(l.replace(STRING_LITERAL_RE, '""'))).length;
   }
 
   // Strict matcher -> matcher that accepts strictly more values.
@@ -684,8 +926,8 @@
     return [a.slice(p, a.length - s).trim(), b.slice(p, b.length - s).trim()];
   }
 
-  function weakenedAssertionInPair(removed, added) {
-    if (COMMENT_LINE_RE.test(removed) || COMMENT_LINE_RE.test(added)) return null;
+  function weakenedAssertionInPair(removed, added, lang) {
+    if (isCommentLine(removed, lang) || isCommentLine(added, lang)) return null;
 
     for (const [strict, loose] of LOOSENED_MATCHERS) {
       if (strict.test(removed) && !strict.test(added) && loose.test(added)) {
@@ -732,8 +974,9 @@
     const skipsRemoved = removedLines.filter((l) => SKIP_MARKER_RE.test(l)).length;
     if (skipsAdded > skipsRemoved) return 'A test was skipped/disabled — confirm it is tracked and not just hiding a failure.';
 
-    const removedCount = countAssertions(removedLines);
-    const addedCount = countAssertions(addedLines);
+    const lang = languageOf(filePath);
+    const removedCount = countAssertions(removedLines, lang);
+    const addedCount = countAssertions(addedLines, lang);
     if (removedCount > addedCount) {
       const n = removedCount - addedCount;
       return `Removed ${n} test assertion${n === 1 ? '' : 's'} — check the behavior is still covered, not just that the test passes.`;
@@ -741,7 +984,7 @@
 
     for (const { removed, added } of pairLines(removedLines, addedLines, BOUNDARY_PAIR_SIMILARITY)) {
       if (removed.trim() === added.trim()) continue;
-      const reason = weakenedAssertionInPair(removed, added);
+      const reason = weakenedAssertionInPair(removed, added, lang);
       if (reason) return reason;
     }
     return null;
@@ -776,8 +1019,11 @@
     { check: /\bif\s+_,\s*ok\s*:?=\s*([\w.]+)\[/, act: (c) => new RegExp(`\\b${c}\\[[^\\]]+\\]\\s*=[^=]`) },
   ];
 
-  function codeOnly(lines) {
-    return lines.filter((l) => !COMMENT_LINE_RE.test(l)).map((l) => l.replace(STRING_LITERAL_RE, '""'));
+  // For finding signals, a "// words" line is skipped in every language.
+  const SLASH_PROSE_RE = /^\s*\/\/\s/;
+
+  function codeOnly(lines, lang) {
+    return lines.filter((l) => !isCommentLine(l, lang) && !SLASH_PROSE_RE.test(l)).map((l) => l.replace(STRING_LITERAL_RE, '""'));
   }
 
   // Lock *variables* are usually named for what they are (`_lock`,
@@ -786,16 +1032,17 @@
   // file_lock_path don't count.
   const LOCK_IDENTIFIER_RE = /(?:^|[^\w])[\w.]*_(?:r?lock|mutex|mu)\b|\bwith\s+[\w.]*[Ll]ock\b/g;
 
-  function countSyncPrimitives(lines) {
-    return codeOnly(lines).reduce(
+  function countSyncPrimitives(lines, lang) {
+    return codeOnly(lines, lang).reduce(
       (n, l) => n + (l.match(SYNC_PRIMITIVE_RE) || []).length + (l.match(LOCK_IDENTIFIER_RE) || []).length,
       0
     );
   }
 
-  function detectConcurrencyRisk(removedLines, addedLines) {
-    const removedSync = countSyncPrimitives(removedLines);
-    const addedSync = countSyncPrimitives(addedLines);
+  function detectConcurrencyRisk(removedLines, addedLines, filePath) {
+    const lang = languageOf(filePath);
+    const removedSync = countSyncPrimitives(removedLines, lang);
+    const addedSync = countSyncPrimitives(addedLines, lang);
     if (removedSync > addedSync) {
       return {
         severity: LEVELS.HIGH,
@@ -814,7 +1061,7 @@
       };
     }
 
-    const added = codeOnly(addedLines);
+    const added = codeOnly(addedLines, lang);
     if (addedSync > 0 || !CONCURRENCY_CONTEXT_RE.test([...removedLines, ...addedLines].join('\n'))) return null;
     for (const { check, act } of CHECK_THEN_ACT_PATTERNS) {
       for (let i = 0; i < added.length; i++) {
@@ -886,13 +1133,18 @@
     // real fix's flags. Docs skip those two detectors and the large-hunk
     // fallback; the structural detectors below still run.
     const isDocumentation = fileKind === FILE_KINDS.DOCUMENTATION;
-    if (detectFormattingOnly(removedLines, addedLines)) {
+    const layout = compareLayout(removedLines, addedLines, filePath);
+    if (layout === 'formatting') {
       return { level: LEVELS.LOW, reason: 'Formatting-only change — no code semantics affected.' };
     }
-    if (detectCommentOnly(removedLines, addedLines)) {
+    if (layout === 'comments') {
+      return { level: LEVELS.LOW, reason: 'Only comments and layout changed — the code itself is the same.' };
+    }
+    if (detectCommentOnly(removedLines, addedLines, filePath)) {
       return { level: LEVELS.LOW, reason: 'Only comments/docs changed.' };
     }
-    if (detectPureRename(removedLines, addedLines)) {
+    const rename = describeRename(removedLines, addedLines, filePath);
+    if (rename && rename.proven) {
       return {
         level: LEVELS.LOW,
         reason: 'Structurally identical to the removed code except for renamed identifier(s) — looks like a mechanical rename.',
@@ -901,7 +1153,7 @@
 
     const candidates = [];
 
-    if (detectSqlInjectionShape(removedLines, addedLines)) {
+    if (detectSqlInjectionShape(removedLines, addedLines, filePath)) {
       candidates.push({
         severity: LEVELS.HIGH,
         reason:
@@ -936,12 +1188,13 @@
       });
     }
 
-    const conditional = detectRemovedConditional(removedLines, addedLines);
+    // With only names swapped, every branch keeps its shape.
+    const conditional = rename ? null : detectRemovedConditional(removedLines, addedLines);
     if (conditional) {
       candidates.push(conditional);
     }
 
-    const concurrencyRisk = isDocumentation ? null : detectConcurrencyRisk(removedLines, addedLines);
+    const concurrencyRisk = isDocumentation ? null : detectConcurrencyRisk(removedLines, addedLines, filePath);
     if (concurrencyRisk) {
       candidates.push(concurrencyRisk);
     }
@@ -968,7 +1221,7 @@
 
     // A long hunk of *code* with no specific red flag is still worth a
     // careful read; a long hunk of prose isn't a risk in itself.
-    if (candidates.length === 0 && !isDocumentation) {
+    if (candidates.length === 0 && !isDocumentation && !rename) {
       const totalLines = addedLines.length + removedLines.length;
       if (totalLines > LARGE_HUNK_LINE_THRESHOLD) {
         candidates.push({
@@ -979,6 +1232,14 @@
     }
 
     if (candidates.length === 0) {
+      if (rename) {
+        const shown = rename.renames.slice(0, 2).map(([from, to]) => `${from} → ${to}`).join(', ');
+        const more = rename.renames.length > 2 ? ', …' : '';
+        return {
+          level: LEVELS.LOW,
+          reason: `Only names changed (${shown}${more}) — no other signal; check it is a rename and not a different variable or call.`,
+        };
+      }
       return { level: LEVELS.LOW, reason: 'No strong risk signals detected in this hunk.' };
     }
 

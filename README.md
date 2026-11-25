@@ -87,7 +87,13 @@ The extension installs with **no access to any of these sites**. Chrome asks for
 <img src="docs/img/engine.svg" alt="The risk engine: a hunk is checked for provably safe transforms first (low), then risk detectors vote and the highest severity wins; with no signal a hunk over 40 lines is medium. A side panel lists the high and medium detectors with the weakness class each maps to." width="900">
 </div>
 
-Safe-transform checks run **first**, so renaming a variable called `password` is still low risk. The detectors cover weakness classes that real fixes in the calibration set exercise: SQL built by concatenation (CWE-89 [[5]](#references)), off-by-one bounds (CWE-193 [[6]](#references)), removed locks and added synchronization (CWE-362 [[7]](#references)), unlocked check-then-act (CWE-367 [[8]](#references)), and missing or bypassed authorization and CSRF checks (CWE-862, CWE-639, CWE-352 [[9]](#references)).
+Three shortcuts run **first** and skip everything else, so each one has to say no whenever it is unsure:
+
+- **Formatting only:** strings and word boundaries must be unchanged, and indentation and line breaks count in languages where they change behavior (Python, YAML, shell, a JavaScript `return` on its own line).
+- **Comments only:** judged by the file's language. In C, `*len = n;`, `--count;` and `#define` are code.
+- **Rename:** only when each renamed name is also *declared* on a changed line. Renaming a `password` variable where it is declared stays low. Swapping a name where it is only used (`canRead` to `canWrite`) looks the same as calling something else, so every detector still runs and the badge lists the names.
+
+An earlier version got all three wrong in this way; [`test/safe-shortcuts.test.js`](test/safe-shortcuts.test.js) keeps the cases. The detectors cover weakness classes that real fixes in the calibration set exercise: SQL built by concatenation (CWE-89 [[5]](#references)), off-by-one bounds (CWE-193 [[6]](#references)), removed locks and added synchronization (CWE-362 [[7]](#references)), unlocked check-then-act (CWE-367 [[8]](#references)), and missing or bypassed authorization and CSRF checks (CWE-862, CWE-639, CWE-352 [[9]](#references)).
 
 A few design rules that came from reading real output rather than from theory:
 
@@ -95,7 +101,7 @@ A few design rules that came from reading real output rather than from theory:
 - **An edited `if` is not a removed one.** If conditions disappear on balance, that is flagged as removed; a rewritten condition is a medium "changed a condition".
 - **SQL means SQL.** It takes a statement shape or upper-case SQL words, so Python's `from x import y` next to an f-string no longer counts.
 - **Prose never raises a security flag.** A CHANGELOG line that *describes* an authorization fix isn't one. Version bumps (`"0.16.2"` to `"0.16.3"`, `@v3` to `@v4`, `'6.4.*'`) are ignored by the off-by-one detector, and package names in dependency manifests don't count as security code.
-- **Formatting-only includes quote style**, unless the line interpolates (`"$x"` and `'$x'` differ in shell).
+- **Formatting-only includes quote style** in JavaScript and Python only. `"a"` and `'a'` are different types in C, and `"$x"` and `'$x'` differ in shell.
 - **Similarity** between an old and new line, used to spot a one-token edit, is the Sørensen–Dice coefficient over character bigrams [[4]](#references), not a full diff.
 - **Path rules** for generated, vendored and documentation files are adapted from GitHub's own [linguist](https://github.com/github-linguist/linguist) [[10]](#references).
 
@@ -114,7 +120,7 @@ What moved the numbers, each found by reading real output hunk by hunk:
 | Match keywords inside `snake_case` / `camelCase` identifiers (`\b` treats `_` as a word character, so `verify_password` never matched) | missing-authorization fix: 0 of 2 hunks flagged to 2 of 2 |
 | Adding a lock is a medium flag (most race fixes *add* synchronization) | race fixtures `spp` 0 of 2 to 2 of 2, `pdns` 6 of 11 to 10 of 11 |
 | A security word inside a **test** file is medium, not high | passkey-kit#4 false alarms at high: 5 to 0, its 3 real fix hunks stay high |
-| Quote-only changes (`"x"` to `'x'`) count as formatting, unless the line interpolates | unit-tested, including the shell `"$x"` counterexample. A hunk that *also* drops redundant parentheses is not provably formatting-only, so a Prettier PR can still get a few flags (passcore_prettier went from 2 to 3 high) |
+| Quote-only changes (`"x"` to `'x'`) in JavaScript and Python count as formatting, unless the string interpolates | unit-tested, including the shell `"$x"` counterexample. A hunk that *also* drops redundant parentheses is not provably formatting-only, so a Prettier PR can still get a few flags (passcore_prettier went from 2 to 3 high) |
 
 All of these numbers are on the development set (see [Evidence so far](#evidence-so-far)).
 
@@ -175,7 +181,8 @@ node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 - **16 of 84 real-fix hunks in the development set are still missed** (7 race-condition, 5 auth and security, 4 signature-change). Examples: a lookup moved *inside* an existing lock (nats-server#8647), a CSRF cookie-prefix rename, and some thread-pool races in C. Check-then-act is only caught in code that visibly runs concurrently.
 - **Misses seen in the audit:** a heap overflow fixed by removing a `min()` clamp inside a `calloc` size ([X11Libre/xserver#4208](https://github.com/X11Libre/xserver/pull/4208)); no memory-size heuristic exists, and one example is too little to calibrate one. A data race "fixed" with a sanitizer suppression ([redis/redis#16350](https://github.com/redis/redis/pull/16350)) is out of reach of text matching.
 - **"Large hunk" says little.** It was 24% of all flags in the audit, mostly new code. It is unchanged until the held-out "needs close review" labels can show whether those flags help.
-- **Reformatting that also re-aligns or edits lines** (clang-format with header changes) can still be flagged; only provably cosmetic hunks are dropped.
+- **Reformatting that also edits code** (clang-format that moves includes or adds namespace comments next to real changes) can still be flagged. Whitespace, line wrapping and comment rewrapping are recognised; reordered imports are not, since order can matter.
+- **The shortcuts read lines, not syntax trees.** A hunk that starts in the middle of a multi-line string or comment is judged without knowing that. A whitespace-only change inside JSX text would count as formatting.
 - **Very large pages:** the extension still rescans a huge PR while GitHub streams it in (about 7 s of scanning across the 198-diff load above, of which the engine is 0.2 s). Rescanning only changed files is the next speed step.
 - **Signature changes** are found by matching declaration lines, so multi-line parameter lists slip through. A syntax-tree comparison for one language is the planned first structural detector, to be measured against the held-out set.
 - **Narrow keyword lists on purpose.** Broader ones produced absurd false positives on real PRs; the cost is missing variants like `pwd`.
