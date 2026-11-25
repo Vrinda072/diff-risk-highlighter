@@ -7,12 +7,33 @@ on:
 jobs:
   unit:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      # The unit suite uses only Node's built-in test runner, so there's
-      # nothing to install. The Playwright E2E suite (npm run test:e2e)
-      # hits live github.com and isn't run here.
+          node-version: ${{ matrix.node }}
+      # Node's built-in test runner: nothing to install.
       - run: npm test
+
+  browser:
+    # Offline: fixture pages plus the packaged ZIP loaded into Chromium.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-zip
+          path: dist/*.zip
+          if-no-files-found: error

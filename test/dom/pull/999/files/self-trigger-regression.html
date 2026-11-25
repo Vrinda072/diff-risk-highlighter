@@ -67,6 +67,12 @@
   };
 </script>
 
+<script>
+  // Some headless browsers have no window.chrome at all; the content script
+  // expects the extension environment, where it always exists.
+  window.chrome = window.chrome || {};
+</script>
+
 <script src="/src/risk-engine.js"></script>
 <script src="/src/content.js"></script>
 

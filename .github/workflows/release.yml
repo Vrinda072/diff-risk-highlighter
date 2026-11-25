@@ -1,0 +1,31 @@
+name: release
+
+# Push a tag like v1.2.0 to publish a GitHub release with the tested ZIP.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Tag must match the manifest version
+        run: test "v$(node -p "require('./manifest.json').version")" = "$GITHUB_REF_NAME"
+      - run: npm test
+      # Builds the ZIP and loads that exact artifact into Chromium.
+      - run: npm run test:browser
+      - run: npm run package
+      - run: gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
