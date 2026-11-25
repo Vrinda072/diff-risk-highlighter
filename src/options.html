@@ -57,7 +57,7 @@
 <body>
 <main>
   <h1>Explain settings</h1>
-  <p class="muted">Highlighting works on its own with no setup. <strong>Explain</strong> is optional: the button on a high-risk hunk asks an AI model for a one-sentence reason. Choose where that answer comes from. Nothing is sent anywhere until you click the button.</p>
+  <p class="muted">Highlighting works on its own with no setup. <strong>Explain</strong> is optional: the button on a high-risk hunk asks an AI model for a one-sentence reason. Choose where that answer comes from. Nothing is sent anywhere until you click the button. Chrome will ask you to allow access to the provider you choose.</p>
 
   <label class="card">
     <span class="head">
@@ -112,6 +112,13 @@
     <button class="primary" id="save">Save</button>
     <button id="test">Save and test</button>
     <span id="status" role="status"></span>
+  </div>
+  <h2 style="margin-top:32px">Your feedback on flags</h2>
+  <p class="muted" id="feedbackCount"></p>
+  <p class="muted">Exports include the lines of each hunk you marked, so check the file before sharing it. Nothing is uploaded.</p>
+  <div class="actions" style="margin-top:8px">
+    <button id="exportFeedback">Export as JSON</button>
+    <button id="clearFeedback">Clear</button>
   </div>
   <p class="muted" style="margin-top:20px">Settings and keys are stored only in this browser (<code>chrome.storage.local</code>) and sent only to the provider you picked, when you click Explain.</p>
 </main>

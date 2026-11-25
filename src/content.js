@@ -155,10 +155,19 @@
 
     const hunkCell = hunk.hunkCell;
     if (hunkCell && !hunkCell.querySelector('.driskh-badge')) {
-      const badge = document.createElement('span');
+      // A real button, so the reason is reachable by keyboard, touch and
+      // screen readers, not only by hovering with a mouse.
+      const badge = document.createElement('button');
+      badge.type = 'button';
       badge.className = `driskh-badge driskh-badge--${result.level}`;
       badge.textContent = result.level.toUpperCase();
       badge.title = result.reason;
+      badge.setAttribute('aria-label', `${result.level} risk: ${result.reason} Press to show details.`);
+      badge.setAttribute('aria-expanded', 'false');
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleReason(hunk, result, badge);
+      });
       hunkCell.appendChild(badge);
 
       // Milestone 5: fully optional, opt-in, high-risk-only. Nothing here
@@ -168,7 +177,7 @@
         const explainBtn = document.createElement('button');
         explainBtn.type = 'button';
         explainBtn.className = 'driskh-explain-btn';
-        explainBtn.textContent = 'Explain';
+        labelExplainButton(explainBtn);
         explainBtn.addEventListener('click', () =>
           requestExplanation(hunk, result, explainBtn)
         );
@@ -182,7 +191,7 @@
   // GitHub's own CSP — a background service worker's isn't (see
   // background.js for the full reasoning). Which provider answers (Ollama,
   // Gemini, Anthropic) is chosen on the extension's options page.
-  const NEEDS_SETUP = new Set(['not-configured', 'no-api-key', 'invalid-api-key']);
+  const NEEDS_SETUP = new Set(['not-configured', 'no-permission', 'no-api-key', 'invalid-api-key']);
 
   function showExplainError(button, message) {
     let note = button.parentElement && button.parentElement.querySelector('.driskh-explain-error');
@@ -235,8 +244,101 @@
 
   function resetExplainButton(button, title) {
     button.disabled = false;
-    button.textContent = 'Explain';
+    labelExplainButton(button);
     if (title) button.title = title;
+  }
+
+  // The button says which provider will get the hunk, so nobody sends code
+  // somewhere without knowing it.
+  const EXPLAIN_LABELS = {
+    ollama: ['Explain · local', 'Asks Ollama on your computer. The hunk stays on this machine.'],
+    gemini: ['Explain · Gemini', 'Sends this hunk to Google (Gemini).'],
+    anthropic: ['Explain · Claude', 'Sends this hunk to Anthropic.'],
+    '': ['Explain', 'Choose a provider first. Nothing is sent until you do.'],
+  };
+  let explainProvider = '';
+
+  function labelExplainButton(button) {
+    const [text, hint] = EXPLAIN_LABELS[explainProvider] || EXPLAIN_LABELS[''];
+    button.textContent = text;
+    button.title = hint;
+    button.setAttribute('aria-label', `${text}. ${hint}`);
+  }
+
+  function setExplainProvider(stored) {
+    const settings = (stored && stored.driskhSettings) || {};
+    explainProvider = settings.provider || (stored && stored.driskhApiKey ? 'anthropic' : '');
+    document.querySelectorAll('.driskh-explain-btn:not(:disabled)').forEach(labelExplainButton);
+  }
+
+  // -----------------------------------------------------------------------
+  // Reason panel and local feedback
+  // -----------------------------------------------------------------------
+
+  const FEEDBACK_KEY = 'driskhFeedback';
+  const FEEDBACK_LIMIT = 500;
+
+  function toggleReason(hunk, result, badge) {
+    const open = hunk.hunkCell.querySelector('.driskh-reason');
+    if (open) {
+      open.remove();
+      badge.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const panel = document.createElement('span');
+    panel.className = 'driskh-reason';
+    panel.setAttribute('role', 'group');
+    panel.setAttribute('aria-label', 'Why this hunk was flagged');
+    const text = document.createElement('span');
+    text.textContent = result.reason;
+    panel.appendChild(text);
+    for (const [verdict, label] of [['useful', 'Useful'], ['not-useful', 'Not useful']]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'driskh-feedback-btn';
+      button.dataset.verdict = verdict;
+      button.textContent = label;
+      button.title = 'Saved only in this browser. Export it from the extension options.';
+      button.setAttribute('aria-pressed', 'false');
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        saveFeedback(hunk, result, verdict);
+        panel.querySelectorAll('.driskh-feedback-btn').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      });
+      panel.appendChild(button);
+    }
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        panel.remove();
+        badge.setAttribute('aria-expanded', 'false');
+        badge.focus();
+      }
+    });
+    badge.setAttribute('aria-expanded', 'true');
+    hunk.hunkCell.appendChild(panel); // after Explain, so that button stays beside the badge
+  }
+
+  function saveFeedback(hunk, result, verdict) {
+    if (!chrome?.storage?.local) return;
+    const pr = location.pathname.replace(/\/(files|changes)(\/.*)?$/, '');
+    const header = (hunk.headerRow.textContent.match(/@@[^@]*@@/) || [''])[0];
+    const clip = (lines) => lines.slice(0, 60).map((l) => l.slice(0, 300));
+    const entry = {
+      key: `${pr}|${hunk.filePath}|${header}`,
+      at: new Date().toISOString(),
+      pr,
+      file: hunk.filePath,
+      header,
+      level: result.level,
+      reason: result.reason,
+      verdict,
+      removedLines: clip(hunk.removedLines),
+      addedLines: clip(hunk.addedLines),
+    };
+    chrome.storage.local.get({ [FEEDBACK_KEY]: [] }, (stored) => {
+      const others = (stored[FEEDBACK_KEY] || []).filter((f) => f.key !== entry.key);
+      chrome.storage.local.set({ [FEEDBACK_KEY]: [...others, entry].slice(-FEEDBACK_LIMIT) });
+    });
   }
 
   // -----------------------------------------------------------------------
@@ -442,6 +544,7 @@
         cursor: default;
         white-space: nowrap;
       }
+      button.driskh-badge { border: 0; cursor: pointer; }
       .driskh-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
       .driskh-badge--high { background: var(--driskh-high-bg); color: var(--driskh-high); }
       .driskh-badge--medium { background: var(--driskh-med-bg); color: var(--driskh-med); }
@@ -470,6 +573,26 @@
       }
 
       .driskh-explain-error { color: var(--driskh-high); font-style: normal; }
+      .driskh-reason {
+        align-self: center;
+        display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px;
+        margin-left: 8px; padding: 4px 10px; max-width: 80ch;
+        border: 1px solid var(--borderColor-default, #d1d9e0); border-radius: 8px;
+        background: var(--bgColor-default, #fff); color: var(--fgColor-default, #1f2328);
+        font: 12px/1.45 var(--fontStack-system, -apple-system, 'Segoe UI', sans-serif);
+        white-space: normal;
+      }
+      .driskh-feedback-btn {
+        padding: 0 9px; border-radius: 2em; cursor: pointer;
+        border: 1px solid var(--borderColor-default, #d1d9e0); background: transparent;
+        color: var(--driskh-muted); font: 500 11px/18px inherit;
+      }
+      .driskh-feedback-btn[aria-pressed='true'] {
+        background: var(--bgColor-neutral-muted, #eaeef2); color: var(--fgColor-default, #1f2328); font-weight: 700;
+      }
+      .driskh-badge:focus-visible, .driskh-feedback-btn:focus-visible {
+        outline: 2px solid var(--focus-outlineColor, #0969da); outline-offset: 2px;
+      }
 
       /* summary bar */
       #${SUMMARY_BAR_ID} {
@@ -552,6 +675,7 @@
       html.driskh-disabled .driskh-edge-high,
       html.driskh-disabled .driskh-edge-medium { box-shadow: none; }
       html.driskh-disabled .driskh-badge,
+      html.driskh-disabled .driskh-reason,
       html.driskh-disabled .driskh-explain-btn,
       html.driskh-disabled .driskh-explanation,
       html.driskh-disabled .driskh-summary-counts,
@@ -683,9 +807,14 @@
     chrome.storage.local.get({ [STORAGE_KEY]: true }, (result) => {
       setEnabled(result[STORAGE_KEY], { persist: false });
     });
+    chrome.storage.local.get(['driskhSettings', 'driskhApiKey'], setExplainProvider);
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes[STORAGE_KEY]) {
+      if (area !== 'local') return;
+      if (changes[STORAGE_KEY]) {
         setEnabled(changes[STORAGE_KEY].newValue, { persist: false });
+      }
+      if (changes.driskhSettings || changes.driskhApiKey) {
+        chrome.storage.local.get(['driskhSettings', 'driskhApiKey'], setExplainProvider);
       }
     });
   }

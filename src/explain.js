@@ -174,6 +174,25 @@
     return s;
   }
 
+  // The one origin the chosen provider needs. The extension asks Chrome for it
+  // only when the user picks that provider. null = nothing to ask for.
+  function originFor(settings) {
+    const s = { ...DEFAULTS, ...settings };
+    if (s.provider === 'anthropic') return 'https://api.anthropic.com/*';
+    if (s.provider === 'gemini') return 'https://generativelanguage.googleapis.com/*';
+    if (s.provider === 'ollama') {
+      try {
+        const url = new URL(s.ollamaUrl || DEFAULTS.ollamaUrl);
+        if (url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
+          return `http://${url.hostname}/*`;
+        }
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
   async function explain(settings, hunk, fetchImpl) {
     const s = { ...DEFAULTS, ...settings };
     const doFetch = fetchImpl || ((...args) => fetch(...args));
@@ -187,5 +206,5 @@
     return fail('not-configured', `Unknown provider "${s.provider}". Pick one in the extension options.`);
   }
 
-  return { DEFAULTS, buildPrompt, cleanText, resolveSettings, explain };
+  return { DEFAULTS, buildPrompt, cleanText, resolveSettings, originFor, explain };
 });

@@ -4,7 +4,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { DEFAULTS, buildPrompt, cleanText, resolveSettings, explain } = require('../src/explain.js');
+const { DEFAULTS, buildPrompt, cleanText, resolveSettings, originFor, explain } = require('../src/explain.js');
 
 const HUNK = {
   filePath: 'app/db.py',
@@ -195,5 +195,21 @@ describe('anthropic (paid)', () => {
   it('asks for a key when none is saved', async () => {
     const res = await explain({ provider: 'anthropic' }, HUNK, fakeFetch(200, {}));
     assert.equal(res.error, 'not-configured');
+  });
+});
+
+describe('optional permissions: one origin per provider', () => {
+  it('asks only for the chosen provider', () => {
+    assert.equal(originFor({ provider: 'gemini' }), 'https://generativelanguage.googleapis.com/*');
+    assert.equal(originFor({ provider: 'anthropic' }), 'https://api.anthropic.com/*');
+    assert.equal(originFor({ provider: 'ollama' }), 'http://localhost/*');
+    assert.equal(originFor({ provider: 'ollama', ollamaUrl: 'http://127.0.0.1:9999' }), 'http://127.0.0.1/*');
+    assert.equal(originFor({}), null);
+  });
+
+  it('refuses a "local" Ollama address that is not this computer', () => {
+    assert.equal(originFor({ provider: 'ollama', ollamaUrl: 'http://ollama.example.com:11434' }), null);
+    assert.equal(originFor({ provider: 'ollama', ollamaUrl: 'http://localhost.evil.test' }), null);
+    assert.equal(originFor({ provider: 'ollama', ollamaUrl: 'not a url' }), null);
   });
 });
