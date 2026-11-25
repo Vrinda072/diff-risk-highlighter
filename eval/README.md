@@ -70,6 +70,12 @@ fix-in-first-3 and no review-worthy hunks beyond what the confidence intervals
 can distinguish, and precision against "needs close review" goes up. With this
 many pull requests the answer may be "can't tell yet".
 
+## Development experiments
+
+`memory-signal.js` and `memory-set.json` measure the C and C++ memory signal on
+40 overflow fixes (split in half before any were read) and 40 ordinary pull
+requests. Their repositories exclude the sealed set. They are development data.
+
 ## Limits of this design
 
 - Bug-fix versus ordinary starts as a guess from the title; the labeller can

@@ -20,6 +20,8 @@
   (about 60% less of its own time at 600 streamed files).
 
 ### Added
+- A medium signal for C and C++ memory shapes: raw copy and allocation calls,
+  resized fixed buffers and bounds checks (`node eval/memory-signal.js`).
 - Signature changes are compared parameter by parameter, including wrapped
   lists, and the reason says what changed ("added parameter ctx").
 - `docs/ablation.md`: what each detector contributes on the development set.

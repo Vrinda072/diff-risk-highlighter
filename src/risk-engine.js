@@ -34,6 +34,7 @@
  *   tests: typeof import('./engine/tests.js'),
  *   concurrency: typeof import('./engine/concurrency.js'),
  *   signature: typeof import('./engine/signature.js'),
+ *   memory: typeof import('./engine/memory.js'),
  * }} DriskhEngineParts
  */
 
@@ -49,6 +50,7 @@
       tests: require('./engine/tests.js'),
       concurrency: require('./engine/concurrency.js'),
       signature: require('./engine/signature.js'),
+      memory: require('./engine/memory.js'),
     });
   } else {
     root.DiffRiskEngine = factory(root.DriskhParts);
@@ -65,6 +67,7 @@
   const { detectWeakenedTest, isTestFile } = parts.tests;
   const { detectConcurrencyRisk } = parts.concurrency;
   const { detectSignatureChange } = parts.signature;
+  const { detectMemoryRisk } = parts.memory;
 
   const LARGE_HUNK_LINE_THRESHOLD = 40;
 
@@ -137,6 +140,14 @@
         if (!change) return null;
         const more = change.changes.length > 2 ? `; and ${change.changes.length - 2} more` : '';
         return finding(LEVELS.MEDIUM, `Function signature changed: ${change.name} — ${change.changes.slice(0, 2).join('; ')}${more}. Check all call sites.`);
+      },
+    },
+    {
+      // Last, so a more specific finding at the same level is the one shown.
+      id: 'memory',
+      run: (/** @type {Driskh.HunkContext} */ h) => {
+        const reason = detectMemoryRisk(h.filePath, h.removedLines, h.addedLines);
+        return reason ? finding(LEVELS.MEDIUM, reason) : null;
       },
     },
   ];

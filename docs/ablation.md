@@ -23,6 +23,7 @@ All signals on: 71 of 84 fix hunks flagged, 106 of 373 hunks flagged, 6 non-fix 
 | Weakened test | 10 | 7 | 70% | -7 | -2 | 0 |
 | Security keyword in a test | 9 | 0 | 0% | 0 | -3 | 0 |
 | Signature change | 23 | 15 | 65% | -15 | -7 | 0 |
+| Memory-safety shape (C family) | 0 | 0 | n/a | 0 | 0 | 0 |
 | Large hunk (fallback) | 14 | 2 | 14% | -1 | -3 | 0 |
 
 For scale, 23% of all hunks are fix hunks, so a detector picking hunks at random would score that.

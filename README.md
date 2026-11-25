@@ -93,7 +93,7 @@ Three shortcuts run **first** and skip everything else, so each one has to say n
 - **Comments only:** judged by the file's language. In C, `*len = n;`, `--count;` and `#define` are code.
 - **Rename:** only when each renamed name is also *declared* on a changed line. Renaming a `password` variable where it is declared stays low. Swapping a name where it is only used (`canRead` to `canWrite`) looks the same as calling something else, so every detector still runs and the badge lists the names.
 
-An earlier version got all three wrong in this way; [`test/safe-shortcuts.test.js`](test/safe-shortcuts.test.js) keeps the cases. The detectors cover weakness classes that real fixes in the calibration set exercise: SQL built by concatenation (CWE-89 [[5]](#references)), off-by-one bounds (CWE-193 [[6]](#references)), removed locks and added synchronization (CWE-362 [[7]](#references)), unlocked check-then-act (CWE-367 [[8]](#references)), and missing or bypassed authorization and CSRF checks (CWE-862, CWE-639, CWE-352 [[9]](#references)).
+An earlier version got all three wrong in this way; [`test/safe-shortcuts.test.js`](test/safe-shortcuts.test.js) keeps the cases. The detectors cover weakness classes that real fixes in the calibration set exercise: SQL built by concatenation (CWE-89 [[5]](#references)), off-by-one bounds (CWE-193 [[6]](#references)), removed locks and added synchronization (CWE-362 [[7]](#references)), unlocked check-then-act (CWE-367 [[8]](#references)), raw memory calls, fixed buffers and bounds checks in C and C++ (CWE-787, CWE-125, CWE-190), and missing or bypassed authorization and CSRF checks (CWE-862, CWE-639, CWE-352 [[9]](#references)).
 
 A few design rules that came from reading real output rather than from theory:
 
@@ -123,6 +123,18 @@ What moved the numbers, each found by reading real output hunk by hunk:
 | Quote-only changes (`"x"` to `'x'`) in JavaScript and Python count as formatting, unless the string interpolates | unit-tested, including the shell `"$x"` counterexample. A hunk that *also* drops redundant parentheses is not provably formatting-only, so a Prettier PR can still get a few flags (passcore_prettier went from 2 to 3 high) |
 
 All of these numbers are on the development set (see [Evidence so far](#evidence-so-far)).
+
+### Testing a new signal on examples it wasn't built from
+
+The memory signal for C and C++ was written from half of 40 merged overflow fixes. The other half was labelled after the code was frozen and before it was run on them. Ordinary C and C++ pull requests measure what it costs. Reproduce with `node eval/memory-signal.js`:
+
+| Hunks | Flagged without it | Flagged with it |
+|---|---|---|
+| Fix hunks, half used to design it (19 PRs) | 13 of 40 (33%) | 25 of 40 (63%) |
+| **Fix hunks, unseen half** (19 PRs) | 15 of 43 (35%) | **23 of 43 (53%)** |
+| All hunks, ordinary C/C++ (39 PRs) | 34 of 294 (12%) | 37 of 294 (13%) |
+
+The design half gains far more than the unseen half, which is why only the second figure is worth quoting. Its limits: the fix hunks were labelled by the detector's author rather than independently; the PRs were found by searching for overflow fixes; and one rule (an array whose size didn't change) was tightened after looking at the ordinary PRs, which did not change either fix figure. It is still development data, not the held-out set.
 
 ### Speed on very large pull requests
 
@@ -191,7 +203,8 @@ node scripts/record-demo.js && python3 scripts/make-gif.py 860 6
 
 - **Heuristics, not parsing.** Regex and text matching can be fooled by a keyword in a string or comment. Swapping in a real syntax tree (e.g. tree-sitter [[17]](#references)) is the natural v2.
 - **13 of 84 real-fix hunks in the development set are still missed** (7 race-condition, 5 auth and security, 1 signature-change). Examples: a lookup moved *inside* an existing lock (nats-server#8647), a CSRF cookie-prefix rename, and some thread-pool races in C. Check-then-act is only caught in code that visibly runs concurrently.
-- **Misses seen in the audit:** a heap overflow fixed by removing a `min()` clamp inside a `calloc` size ([X11Libre/xserver#4208](https://github.com/X11Libre/xserver/pull/4208)); no memory-size heuristic exists, and one example is too little to calibrate one. A data race "fixed" with a sanitizer suppression ([redis/redis#16350](https://github.com/redis/redis/pull/16350)) is out of reach of text matching.
+- **Out of reach of text matching:** a data race "fixed" with a sanitizer suppression ([redis/redis#16350](https://github.com/redis/redis/pull/16350)).
+- **The C and C++ memory signal is shallow.** It notices that a raw copy or allocation call, a fixed-size buffer or a size comparison changed, not whether the new code is right. Fixes that only change which type, field or variable is used are still missed.
 - **"Large hunk" says little.** It was 24% of all flags in the audit, mostly new code. It is unchanged until the held-out "needs close review" labels can show whether those flags help.
 - **Reformatting that also edits code** (clang-format that moves includes or adds namespace comments next to real changes) can still be flagged. Whitespace, line wrapping and comment rewrapping are recognised; reordered imports are not, since order can matter.
 - **The shortcuts read lines, not syntax trees.** A hunk that starts in the middle of a multi-line string or comment is judged without knowing that. A whitespace-only change inside JSX text would count as formatting.

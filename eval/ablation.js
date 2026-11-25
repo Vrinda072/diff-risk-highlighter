@@ -26,6 +26,7 @@ const NAMES = {
   'weakened-test': 'Weakened test',
   'security-in-test': 'Security keyword in a test',
   signature: 'Signature change',
+  memory: 'Memory-safety shape (C family)',
   'large-hunk': 'Large hunk (fallback)',
 };
 
