@@ -145,6 +145,8 @@ On this extreme page most of the blocking is GitHub rendering its own diffs, and
 
 Compare only within a table: the same laptop ran about twice as slow in this session as in an earlier one. Reproduce with `node scripts/bench-rescan.js --files 600`.
 
+This is the extension's own time, not what a reviewer will feel on every page. In one live run each on the 287-file PR above, both versions rated the same 1,133 hunks and the page was blocked for 40.9 s (old) and 42.8 s (new): GitHub's own rendering dominates there, and the difference is within run-to-run noise.
+
 ## Install
 
 No build step, no runtime dependencies.
