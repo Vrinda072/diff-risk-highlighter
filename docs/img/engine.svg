@@ -38,7 +38,7 @@
   <text x="60" y="87" class="h">1 · One hunk</text>
   <text x="60" y="106" class="s">file path, added lines, removed lines</text>
 
-  <text x="62" y="190" class="h">2 · Provably safe to skim?</text>
+  <text x="62" y="190" class="h">2 · Provably cosmetic or generated?</text>
   <text x="62" y="212" class="m">generated or vendored file · formatting</text>
   <text x="62" y="230" class="m">only · comments only · pure rename</text>
 
@@ -103,7 +103,7 @@
     <text x="626" y="326" class="row">Added locking or atomics</text><text x="1012" y="326" class="tag" text-anchor="end">race fixes</text>
     <text x="626" y="354" class="row">Check-then-act, no lock</text><text x="1012" y="354" class="tag" text-anchor="end">CWE-367</text>
     <text x="626" y="382" class="row">Weakened or skipped test</text><text x="1012" y="382" class="tag" text-anchor="end">tests only</text>
-    <text x="626" y="410" class="row">Removed conditional branch</text><text x="1012" y="410" class="tag" text-anchor="end">dead code?</text>
+    <text x="626" y="410" class="row">Removed or changed condition</text><text x="1012" y="410" class="tag" text-anchor="end">dead code?</text>
     <text x="626" y="438" class="row">Function signature changed</text><text x="1012" y="438" class="tag" text-anchor="end">call sites</text>
     <text x="626" y="466" class="row">Security keyword in a test</text><text x="1012" y="466" class="tag" text-anchor="end">nudge</text>
     <text x="626" y="494" class="row">Large hunk, no other signal</text><text x="1012" y="494" class="tag" text-anchor="end">&gt; 40 lines</text>
@@ -114,5 +114,5 @@
   <text x="640" y="549" class="l" style="fill:#3fb950;font-size:12px">ALWAYS LOW FIRST</text>
   <text x="626" y="574" class="m">Safe transforms are checked before any risk</text>
   <text x="626" y="592" class="m">word, so renaming a variable called</text>
-  <text x="626" y="610" class="m"><tspan style="font-family:ui-monospace,Menlo,monospace;fill:#e6edf3">password</tspan> is still safe to skim.</text>
+  <text x="626" y="610" class="m"><tspan style="font-family:ui-monospace,Menlo,monospace;fill:#e6edf3">password</tspan> still scores low.</text>
 </svg>
