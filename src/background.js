@@ -7,15 +7,27 @@
 //      logic itself is in explain.js (Ollama, Gemini or Anthropic).
 //   2. Toolbar button: flip highlighting on and off.
 //
-// Nothing here runs a network request unless the user clicks "Explain".
+// Nothing here runs a network request unless the user clicks "Explain", and
+// access to a provider is only requested when the user chooses it.
 
 importScripts('explain.js');
+
+async function explainWithPermission(settings, hunk) {
+  const origin = DriskhExplain.originFor(settings);
+  if (origin && !(await chrome.permissions.contains({ origins: [origin] }))) {
+    return { error: 'no-permission', message: 'Allow access to your Explain provider: open the extension options and press Save.' };
+  }
+  if (settings.provider === 'ollama' && !origin) {
+    return { error: 'not-configured', message: 'Ollama must be on this computer (http://localhost or http://127.0.0.1).' };
+  }
+  return DriskhExplain.explain(settings, hunk);
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message && message.type === 'driskh-explain') {
     chrome.storage.local
       .get(['driskhSettings', 'driskhApiKey'])
-      .then((stored) => DriskhExplain.explain(DriskhExplain.resolveSettings(stored), message.hunk))
+      .then((stored) => explainWithPermission(DriskhExplain.resolveSettings(stored), message.hunk))
       .then(sendResponse)
       .catch((err) => sendResponse({ error: 'exception', message: 'Explain failed unexpectedly.', detail: String(err) }));
     return true; // keep the channel open for the async sendResponse

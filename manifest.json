@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Diff Risk Highlighter",
-  "version": "1.1.0",
-  "description": "Flags risky vs. safe-to-skim diff hunks on GitHub pull request pages using static heuristics.",
+  "version": "1.2.0",
+  "description": "Highlights which hunks of a GitHub pull request to review first, using explainable static heuristics.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -23,11 +23,11 @@
   "permissions": [
     "storage"
   ],
-  "host_permissions": [
+  "optional_host_permissions": [
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
-    "http://localhost:11434/*",
-    "http://127.0.0.1:11434/*"
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "src/background.js"

@@ -7,13 +7,17 @@
 //
 // The Ollama tests need `ollama serve` running with
 //   OLLAMA_ORIGINS="chrome-extension://*"
-// and a model pulled; set OLLAMA_MODEL to override the default (qwen3).
+// and a model pulled; set OLLAMA_MODEL to override the default (qwen3), and
+// OLLAMA_URL if the server isn't on http://localhost:11434.
 
 const { test, expect } = require('./extension-fixture.js');
+
+test.use({ grantProviderAccess: true });
 
 const PR_URL = 'https://github.com/stellar/passkey-kit/pull/4/files';
 const OLLAMA = Boolean(process.env.OLLAMA_E2E);
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 
 async function serviceWorker(context) {
   const [existing] = context.serviceWorkers();
@@ -93,8 +97,8 @@ test.describe.serial('Explain', () => {
 
     test.beforeAll(async () => {
       await sw.evaluate(
-        (model) => chrome.storage.local.set({ driskhSettings: { provider: 'ollama', ollamaModel: model } }),
-        OLLAMA_MODEL
+        ([model, url]) => chrome.storage.local.set({ driskhSettings: { provider: 'ollama', ollamaModel: model, ollamaUrl: url } }),
+        [OLLAMA_MODEL, OLLAMA_URL]
       );
     });
 

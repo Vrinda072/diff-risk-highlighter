@@ -145,3 +145,77 @@ for (const [layout, cfg] of Object.entries(LAYOUTS)) {
     await page.close();
   });
 }
+
+test('the shipped manifest grants no site access up front', async ({ ext }) => {
+  const info = await ext.worker.evaluate(async () => ({
+    required: chrome.runtime.getManifest().host_permissions || [],
+    granted: (await chrome.permissions.getAll()).origins.filter((o) => !o.startsWith('https://github.com/')),
+    optional: chrome.runtime.getManifest().optional_host_permissions,
+  }));
+  expect(info.required).toEqual([]);
+  expect(info.granted).toEqual([]);
+  expect(info.optional).toHaveLength(4);
+});
+
+test('keyboard: open a badge for its reason, mark it, close it', async ({ ext }) => {
+  await ext.worker.evaluate(() => chrome.storage.local.clear());
+  const page = await ext.context.newPage();
+  await page.goto(LAYOUTS.classic.url);
+  const badge = page.locator('.driskh-badge--high').first();
+  await expect(badge).toHaveAccessibleName(/high risk: .*SQL/i);
+  await expect(badge).toHaveAttribute('aria-expanded', 'false');
+
+  await badge.focus();
+  await page.keyboard.press('Enter');
+  await expect(badge).toHaveAttribute('aria-expanded', 'true');
+  const panel = page.locator('.driskh-reason');
+  await expect(panel).toContainText(/SQL query construction/);
+
+  await panel.getByRole('button', { name: 'Not useful' }).press('Enter');
+  await expect(panel.getByRole('button', { name: 'Not useful' })).toHaveAttribute('aria-pressed', 'true');
+  await panel.getByRole('button', { name: 'Useful', exact: true }).press('Enter'); // changing your mind replaces it
+  await expect
+    .poll(async () => (await ext.worker.evaluate(() => chrome.storage.local.get('driskhFeedback'))).driskhFeedback)
+    .toMatchObject([{ verdict: 'useful', level: 'high', file: 'src/UserDao.java', pr: '/acme/demo/pull/1' }]);
+
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+  await expect(badge).toBeFocused();
+
+  const options = await ext.context.newPage();
+  await options.goto(`chrome-extension://${new URL(ext.worker.url()).host}/src/options.html`);
+  await expect(options.locator('#feedbackCount')).toContainText('1 saved on this computer: 1 useful, 0 not useful');
+  const [download] = await Promise.all([options.waitForEvent('download'), options.locator('#exportFeedback').click()]);
+  const exported = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
+  expect(exported.feedback).toHaveLength(1);
+  await options.close();
+  await page.close();
+});
+
+test('Explain names the provider and will not call it without permission', async ({ ext }) => {
+  await ext.worker.evaluate(() => chrome.storage.local.clear());
+  const outside = [];
+  ext.context.on('request', (r) => /googleapis|anthropic|11434/.test(r.url()) && outside.push(r.url()));
+  const page = await ext.context.newPage();
+  await page.goto(LAYOUTS.classic.url);
+  const button = page.locator('.driskh-explain-btn').first();
+  await expect(button).toHaveText('Explain');
+
+  await ext.worker.evaluate(() => chrome.storage.local.set({ driskhSettings: { provider: 'gemini', geminiKey: 'AIza-test' } }));
+  await expect(button).toHaveText('Explain · Gemini'); // updates live
+  await expect(button).toHaveAttribute('title', /Google/);
+
+  // Close leftover tabs so the options page this click opens is a fresh one.
+  for (const other of ext.context.pages()) if (other !== page) await other.close();
+  const opened = ext.context.waitForEvent('page', (p) => p.url().includes('options.html'));
+  await button.click();
+  await expect(page.locator('.driskh-explain-error').first()).toContainText(/Allow access/);
+  // Wait for the options page it opens: with Gemini chosen, that page must not
+  // contact Ollama either (it once did, which only showed up intermittently).
+  const options = await opened;
+  await options.waitForLoadState('networkidle');
+  await options.waitForTimeout(500);
+  expect(outside).toEqual([]);
+  await options.close();
+  await page.close();
+});

@@ -20,19 +20,35 @@ const EXTENSION_PATH = path.resolve(__dirname, '..');
 // window) — its cookies are then loaded here. Gitignored.
 const SESSION_FILE = process.env.E2E_GITHUB_SESSION || path.join(__dirname, '.auth', 'github.json');
 
+// A headless browser can't click Chrome's permission prompt, so tests that need
+// a provider load a copy of the extension with that access already granted.
+// (That the shipped build asks first is covered by browser/ tests.)
+function copyWithProviderAccess() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'driskh-granted-'));
+  for (const entry of ['icons', 'src']) fs.cpSync(path.join(EXTENSION_PATH, entry), path.join(dir, entry), { recursive: true });
+  const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_PATH, 'manifest.json'), 'utf8'));
+  manifest.host_permissions = manifest.optional_host_permissions;
+  delete manifest.optional_host_permissions;
+  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
+  return dir;
+}
+
 const test = base.extend({
+  grantProviderAccess: [false, { option: true, scope: 'worker' }],
+
   // Worker-scoped: one browser (and one extension load) per worker, not
   // per test — the live-GitHub tests are slow enough already.
   extensionContext: [
-    async ({}, use) => {
+    async ({ grantProviderAccess }, use) => {
+      const extensionPath = grantProviderAccess ? copyWithProviderAccess() : EXTENSION_PATH;
       const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'driskh-e2e-'));
       const context = await chromium.launchPersistentContext(userDataDir, {
         channel: 'chromium',
         headless: !process.env.HEADED,
         viewport: { width: 1400, height: 1000 },
         args: [
-          `--disable-extensions-except=${EXTENSION_PATH}`,
-          `--load-extension=${EXTENSION_PATH}`,
+          `--disable-extensions-except=${extensionPath}`,
+          `--load-extension=${extensionPath}`,
         ],
       });
       if (fs.existsSync(SESSION_FILE)) {
@@ -41,6 +57,7 @@ const test = base.extend({
       await use(context);
       await context.close();
       fs.rmSync(userDataDir, { recursive: true, force: true });
+      if (extensionPath !== EXTENSION_PATH) fs.rmSync(extensionPath, { recursive: true, force: true });
     },
     { scope: 'worker' },
   ],
