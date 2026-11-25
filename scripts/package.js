@@ -28,6 +28,7 @@ const RUNTIME_FILES = [
   'src/engine/tests.js',
   'src/engine/concurrency.js',
   'src/engine/signature.js',
+  'src/engine/memory.js',
   'src/risk-engine.js',
   'src/content.js',
   'src/background.js',

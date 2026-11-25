@@ -1,0 +1,610 @@
+{
+ "note": "Claude, by reading each diff and its title. Development data, not an independent labelling. The check half was labelled after the detector was frozen and before it was run on it. fixHunks are indexes into the parsed diff; null = excluded.",
+ "collectedOn": "2026-11-25",
+ "overflowFixes": [
+  {
+   "repo": "OpenSC/OpenSC",
+   "number": 3905,
+   "diffSha256": "9f4378e6e811f5c7903aa7fbe479e4e8119faa0e138f8bfae283108976896f9e",
+   "half": "design",
+   "fixHunks": [
+    0,
+    2
+   ]
+  },
+  {
+   "repo": "ROCm/rocm-systems",
+   "number": 9020,
+   "diffSha256": "ef3f5bb0f0df181e14eca63d407406c2253b13e89e5f50ebc7e1920f997564d2",
+   "half": "check",
+   "fixHunks": [
+    0,
+    1,
+    2,
+    3
+   ]
+  },
+  {
+   "repo": "google/XNNPACK",
+   "number": 10837,
+   "diffSha256": "58ec82d59bc015decbe5f594e00ead66a3b55f338a37ccd94f20a79ec41377d3",
+   "half": "design",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "FRRouting/frr",
+   "number": 22512,
+   "diffSha256": "c38d4ce4ec436489c6d9aafb02861ad11914f3ec117a7e15fa73ef8e47810ac1",
+   "half": "check",
+   "fixHunks": [
+    4
+   ]
+  },
+  {
+   "repo": "wolfSSL/wolfssl",
+   "number": 12131,
+   "diffSha256": "6a647306a63516ed4696be90b62ba7ede9ad5e5ea5191a98a39510e726f0cc77",
+   "half": "design",
+   "fixHunks": [
+    4,
+    5,
+    6,
+    7
+   ]
+  },
+  {
+   "repo": "ClickHouse/ClickHouse",
+   "number": 119054,
+   "diffSha256": "8d6c24ec0b9d2fc1b48b73dbdf64f03b530978812f0b7208b45808acde15e29a",
+   "half": "check",
+   "fixHunks": [
+    5
+   ]
+  },
+  {
+   "repo": "xbmc/xbmc",
+   "number": 29546,
+   "diffSha256": "08f19ac82bf200871e602bb4e42d81d9b754664ace62383389eff8bfcc5b042f",
+   "half": "design",
+   "fixHunks": [
+    0,
+    1,
+    2
+   ]
+  },
+  {
+   "repo": "netdata/netdata",
+   "number": 24818,
+   "diffSha256": "d83726559baec58b44014103e37d56b6f46bf0e5d1331d143abc60fe326233fa",
+   "half": "check",
+   "fixHunks": [
+    0,
+    1,
+    2
+   ]
+  },
+  {
+   "repo": "bareos/bareos",
+   "number": 2785,
+   "diffSha256": "d18d46185a02b475092c6b42709a36e015335f96bac7666713f8f0d3bcde7693",
+   "half": "design",
+   "fixHunks": [
+    3,
+    4,
+    5
+   ]
+  },
+  {
+   "repo": "betaflight/betaflight",
+   "number": 15636,
+   "diffSha256": "58eea066e9fbff9f34808be84088cd786994259a31cd5bc2389858ff75e62a39",
+   "half": "check",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "dlukt/eq2emu",
+   "number": 84,
+   "diffSha256": "525583a60015370ee188f55adb68c2ec3837eb946392b715f4c35e343b514a6f",
+   "half": "design",
+   "fixHunks": [
+    0,
+    1,
+    2,
+    3
+   ]
+  },
+  {
+   "repo": "openxla/xla",
+   "number": 48127,
+   "diffSha256": "87e251fa31e80f45d5300094590c91f52a290eb42df50731d72e512ce8e9243f",
+   "half": "check",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "google/nsjail",
+   "number": 280,
+   "diffSha256": "c42f4c3f6757e7e057f1b736db7075cb4abc25dd9c3859679c1f5c16dd5a08d6",
+   "half": "design",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "WerWolv/PatternLanguage",
+   "number": 255,
+   "diffSha256": "df716b5165cfe2a9ab2296465d890f3ab3e82de4e1682af51c557973563bb2eb",
+   "half": "check",
+   "fixHunks": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  },
+  {
+   "repo": "zortos293/Lichii",
+   "number": 1876,
+   "diffSha256": "61a096e864334c1ab434e3e4a309891f202a72edd7cfe20d64700b34937a3dd8",
+   "half": "design",
+   "fixHunks": [
+    0,
+    1
+   ]
+  },
+  {
+   "repo": "trilinos/Trilinos",
+   "number": 15723,
+   "diffSha256": "6fd2b778a694e7037bd546901118b8ac49d334445f31e6a49683a86842da392f",
+   "half": "check",
+   "fixHunks": [
+    0,
+    1
+   ]
+  },
+  {
+   "repo": "apache/doris",
+   "number": 6300,
+   "diffSha256": "431f98a82333e2b1594d85a236516d0ba5f5af39f93ec5c8674865c5d47459a9",
+   "half": "design",
+   "fixHunks": [
+    0,
+    6,
+    7
+   ]
+  },
+  {
+   "repo": "fcitx/fcitx5-unikey",
+   "number": 65,
+   "diffSha256": "ea0a44f3927cd4a8f7b6a251ff019b5090ae9c96045081486151df7faced7e86",
+   "half": "check",
+   "fixHunks": [
+    2,
+    3,
+    4,
+    5
+   ]
+  },
+  {
+   "repo": "llvm/llvm-project",
+   "number": 236708,
+   "diffSha256": "60c93f4be1bb90e61adbd19990e5761b560721075e229d6efb977a42515f05a6",
+   "half": "design",
+   "fixHunks": [
+    1
+   ]
+  },
+  {
+   "repo": "matz/spinel",
+   "number": 12497,
+   "diffSha256": "6796a737d42c909f9b5a9c6bb76dedde8903fbc4daadc0a1d039efc560c1bd13",
+   "half": "check",
+   "fixHunks": [
+    0,
+    1,
+    2
+   ]
+  },
+  {
+   "repo": "Amiga500/Onion",
+   "number": 189,
+   "diffSha256": "fd6d5b33ec3294f46d88e4d26d7dc0209f9c8df98274952918c3b8c8b1d812c6",
+   "half": "design",
+   "fixHunks": [
+    0,
+    1
+   ]
+  },
+  {
+   "repo": "samtools/samtools",
+   "number": 2427,
+   "diffSha256": "c9d1ab64d5d95c47e46bd7f136b60651b13abd895bac6608a2960fc251874bf3",
+   "half": "check",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "assimp/assimp",
+   "number": 7050,
+   "diffSha256": "ac85b6dfad0a807d33f38abb9ec5f127a1dc91a126eac00eb63cacb909c6007b",
+   "half": "design",
+   "fixHunks": [
+    0,
+    1,
+    2,
+    3
+   ]
+  },
+  {
+   "repo": "momo5502/sogen",
+   "number": 1236,
+   "diffSha256": "23a7f2463b243937e551f9eb99d8146fd99b6aff2513c495c8f5d9659ad900ff",
+   "half": "check",
+   "fixHunks": null
+  },
+  {
+   "repo": "root-project/root",
+   "number": 22474,
+   "diffSha256": "bbb0368c441e29592263d27118aaecce3d2c85b88c60377d117fae12805b2491",
+   "half": "design",
+   "fixHunks": null
+  },
+  {
+   "repo": "mruby/mruby",
+   "number": 7002,
+   "diffSha256": "305fc18bf7a6c22650e36c733a9ba3681eed3f6c1a635ef01d5123fa5db4a5b2",
+   "half": "check",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "onnx/onnx-mlir",
+   "number": 3618,
+   "diffSha256": "2d4de9ae9bbf74fa7d18458ba5a202c87546500b786608543ac73f399dc5ce37",
+   "half": "design",
+   "fixHunks": [
+    0,
+    1,
+    3
+   ]
+  },
+  {
+   "repo": "digicert/trustcore",
+   "number": 154,
+   "diffSha256": "42b064d493b17368a3b73f5ad18005757d05c35ef2c453a3cec6bb9e7b7d5271",
+   "half": "check",
+   "fixHunks": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  },
+  {
+   "repo": "AutomotiveAIChallenge/aichallenge-racingkart",
+   "number": 326,
+   "diffSha256": "dd6ef8ab3441a75dbb1fb375c6433cc93c0ff7ea6a1ee854d8b5b95aa94ab49f",
+   "half": "design",
+   "fixHunks": [
+    1
+   ]
+  },
+  {
+   "repo": "SerenityOS/serenity",
+   "number": 27183,
+   "diffSha256": "f576a83040acd5c4a674279ca8485b5e7ef6299f742a394a88b0a7cbde35ebea",
+   "half": "check",
+   "fixHunks": [
+    1
+   ]
+  },
+  {
+   "repo": "SuperInstance/kintsugi-math-c",
+   "number": 2,
+   "diffSha256": "01cf2ad04f183abc4b2d23b1027c83a66c185d9006ca970a5dce09f1226ad9b8",
+   "half": "design",
+   "fixHunks": [
+    2
+   ]
+  },
+  {
+   "repo": "genlayerlabs/subzeroclaw",
+   "number": 16,
+   "diffSha256": "54f31253a10ebeb7b0770537a6a3fc71ad8744cf9372baca9a6b2ebe0ab8b55b",
+   "half": "check",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "AcademySoftwareFoundation/openexr",
+   "number": 2487,
+   "diffSha256": "64e478b052451c2a062ffd380185169388199c304e27604ef58d3e0cc49926b9",
+   "half": "design",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "alibaba/PhotonLibOS",
+   "number": 1283,
+   "diffSha256": "764a03198c6ffea34f963b8b83d5ebd112a493ffcd5935b9abc6db44368d7faf",
+   "half": "check",
+   "fixHunks": [
+    0,
+    1,
+    2
+   ]
+  },
+  {
+   "repo": "odin-lang/Odin",
+   "number": 4233,
+   "diffSha256": "fe618b54902bb862ca750b893badbc97430befb1f930d9c2a761087c2b2a2447",
+   "half": "design",
+   "fixHunks": [
+    0,
+    1
+   ]
+  },
+  {
+   "repo": "keepassxreboot/keepassxc",
+   "number": 365,
+   "diffSha256": "9e83f33bd557417ef4fd95d445b8f2e3638ade2b509aa7c2f4021d95a6032ae2",
+   "half": "check",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "OSGeo/gdal",
+   "number": 6539,
+   "diffSha256": "0e54b57a03e74b97faa5c5bb23f963b284cf07f9de8f3ce4705e55bd5f87d281",
+   "half": "design",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "echo-cool/cyd-world-clock",
+   "number": 10,
+   "diffSha256": "fcc61547d7b95b6e143b876efb315c0e6f4fb27c38531748320d6a380f431f0a",
+   "half": "check",
+   "fixHunks": [
+    1
+   ]
+  },
+  {
+   "repo": "RobLoach/SDL_libretro",
+   "number": 49,
+   "diffSha256": "6b1ddffa31f8efb33a672a4023afdbf994de0c29e62507059dc13ace24ecf9b7",
+   "half": "design",
+   "fixHunks": [
+    0
+   ]
+  },
+  {
+   "repo": "tensorflow/tensorflow",
+   "number": 121244,
+   "diffSha256": "2f01bd1775d08e519a9fd745325d7683c2d80493ecc5de8f71c5b9e80055f05d",
+   "half": "check",
+   "fixHunks": [
+    0
+   ]
+  }
+ ],
+ "ordinary": [
+  {
+   "repo": "SurendranathParimi/zephyr-4.2-pmic",
+   "number": 9,
+   "diffSha256": "eb1ef42ec29e25a955a1c88564cadc5ec4503a128a4127014744abc9bddea2d0"
+  },
+  {
+   "repo": "maxwellmbooth/software-systems-shell",
+   "number": 3,
+   "diffSha256": "d79c1ea4c1061e960102a3ea50847fa56fcdf7931c9968d86dc89772edfc5c33"
+  },
+  {
+   "repo": "betaflight/config",
+   "number": 1270,
+   "diffSha256": "b72fedaed975f7f0286eac6ce9e631281a9f3cd51aa89289e2cbe79b248c54b5"
+  },
+  {
+   "repo": "kjdev/php-ext-cedar",
+   "number": 8,
+   "diffSha256": "74b1b397fa1f7b918568f77cc0a0d2ff6ac504ec67755e86d2fef12b7112f195"
+  },
+  {
+   "repo": "kevinboone/fbtextdemo",
+   "number": 6,
+   "diffSha256": "1ec31b9e1a4c551a378ed4dba9370b0a641cfbf2f25c64a6287aea198a08d78f"
+  },
+  {
+   "repo": "mist-devel/mist-firmware",
+   "number": 157,
+   "diffSha256": "678b0ebcf7d6fbe252f4a83fd886791dbc23ad8632a1565759d9a222a118e36b"
+  },
+  {
+   "repo": "libsidplayfp/sidplayfp",
+   "number": 156,
+   "diffSha256": "546bfa8b44c7d6aabcf06c0d1556b84d4deb51de6f34b185301cde53ab7df197"
+  },
+  {
+   "repo": "kaeptnegli/tensile_testing_device_esp32",
+   "number": 4,
+   "diffSha256": "8be058efba1c4b6e5cf25c28163ef28fa2f376feec93eaf262405b20d0a78818"
+  },
+  {
+   "repo": "Ishaan-Buddharaju/open-gallery",
+   "number": 2,
+   "diffSha256": "7b841474f72611c7e1e832de8cee5b04c002a393dadc1aecf47a8e9dc16c4411"
+  },
+  {
+   "repo": "apache/mynewt-core",
+   "number": 3930,
+   "diffSha256": "f602d7de7e27e153d50c5369760d92ebb6a67cb64af01861e42dc10d3d93a74b"
+  },
+  {
+   "repo": "CarlosDerSeher/snapclient",
+   "number": 255,
+   "diffSha256": "d15bd61f5cbbb635c0fc83c5760eaad185308b01db447814704515201910ce19"
+  },
+  {
+   "repo": "VoxelPi/AX08",
+   "number": 7,
+   "diffSha256": "60051faafbed5ef17304bb69845fb8fba92b2977ca98f3d276a9db659956347a"
+  },
+  {
+   "repo": "zephyrproject-rtos/zephyr",
+   "number": 125202,
+   "diffSha256": "ba02741f2ff6916116af41e4d1dac9acf9207cbb76ebcc677fa38ddfe07460ed"
+  },
+  {
+   "repo": "Joshakin1/pebble-masl-watchface",
+   "number": 7,
+   "diffSha256": "2340480d2bf31d214c17c8443dae23035f69804e8ea1e22d76748b68f134abf7"
+  },
+  {
+   "repo": "Mithweth/icebreaker-3ds",
+   "number": 13,
+   "diffSha256": "eb3ba3cacf27a1794cd1d6d2ee102227c4a109ac8aef573352f072f4482435e5"
+  },
+  {
+   "repo": "STFC-Mod/mod",
+   "number": 348,
+   "diffSha256": "2eafa0184221dab6cc7d0dc57aa249c791aceef4486309cb32de450de7500ba0"
+  },
+  {
+   "repo": "OpenPrinting/pappl-retrofit",
+   "number": 72,
+   "diffSha256": "bc286c3f914aae09eae8b2d105f4036efac0232662f560d8347d433ebd287397"
+  },
+  {
+   "repo": "ATTPC/ATTPCROOTv2",
+   "number": 271,
+   "diffSha256": "f01e2847b41062aa7cc067470c0aeb020a44f4d3e5f1e56a1ec626605e609bfc"
+  },
+  {
+   "repo": "Axcient/storage-ntfs-3g",
+   "number": 7,
+   "diffSha256": "e6cd152c26f0c5bf58adda9b17bc663e1e1157764dfd886b3233ec4d76b211fb"
+  },
+  {
+   "repo": "apache/mynewt-nimble",
+   "number": 2394,
+   "diffSha256": "e53ea932785a47e95d6dd59801239ef5e4801957413d89721db3ef7a772fe9e7"
+  },
+  {
+   "repo": "apache/nuttx",
+   "number": 21222,
+   "diffSha256": "a8dadb6b05724109eaab338b9e2338bf9f5e51c62df9e8cd8f54a6ddcee87fe8"
+  },
+  {
+   "repo": "musescore/muse_framework",
+   "number": 374,
+   "diffSha256": "e02a1840e98e8dde60b262a0664842d5895759f0cac0c576a654d46c42ffeb9e"
+  },
+  {
+   "repo": "DUNE-DAQ/dfmodules",
+   "number": 522,
+   "diffSha256": "81ec701c78e34af2c980d5c24e24bb68b0736d3ef6b4ed666fccbe8f804f0d56"
+  },
+  {
+   "repo": "gerbera/gerbera",
+   "number": 3983,
+   "diffSha256": "6ccd6d109745fe6f741be9c545935915bdc7a44b216d962767f25b71260be988"
+  },
+  {
+   "repo": "silicon-heaven/shvspy",
+   "number": 218,
+   "diffSha256": "596a697033e8d3196b227525ded003b7c13fc11ea1f5cb3d92331743e6b420d2"
+  },
+  {
+   "repo": "antonvw/wex",
+   "number": 1325,
+   "diffSha256": "b28e6c48cccd7442cbff92d7f4e4b6633ba6a91eb7c7b40b465cb6c77523f83a"
+  },
+  {
+   "repo": "wazuh/wazuh",
+   "number": 22418,
+   "diffSha256": "a9d6e1076fce6f4eb8b026d0949ffa682eb61779d1f9552ddabeec8d96382fc7"
+  },
+  {
+   "repo": "ModbusScope/ModbusScope",
+   "number": 516,
+   "diffSha256": "937209f6bc227b8bc21c47149e02485fa66b2e294e0f3718561ba102f767608a"
+  },
+  {
+   "repo": "Efe-Elite-Dev/KerneliaOS",
+   "number": 41,
+   "diffSha256": "d4a2f0ff8c09d1f6cc19fb4be39e324968101cbe9ceaaa27c319b5f88791949c"
+  },
+  {
+   "repo": "mohammadalkhano/dvgb03_lab1",
+   "number": 5,
+   "diffSha256": "75a47c0f9a08ba3311599fb96d66e3439197a2f8b31c7d1129331c321eb43328"
+  },
+  {
+   "repo": "keyehzy/ro_decomp",
+   "number": 3689,
+   "diffSha256": "c178ca7caaab1e25d6c46b01a15e97e79c01e6cb36876fb02c9de1acf2441add"
+  },
+  {
+   "repo": "isthatpaul/car-acceleration-x64",
+   "number": 1,
+   "diffSha256": "ad6965f077a84df99c5235b32c1be8f417f6b1cecf7936c449790867ee55bb94"
+  },
+  {
+   "repo": "tuupola/pcf8563",
+   "number": 11,
+   "diffSha256": "62497b0211f85ef70b9458ad121fc1da9620eaaffa8efe0bbb0355831d46ef59"
+  },
+  {
+   "repo": "jamartinez4991/tracker-ce_EDITS",
+   "number": 4,
+   "diffSha256": "981f4feff6efce80bcfc880b1a102c23219d0790b3bef3be9252c09ac7e56bc7"
+  },
+  {
+   "repo": "xiaobaoi1/HeliumOS",
+   "number": 46,
+   "diffSha256": "2fec63650caaa41dffb67fb788bca92488618d74965c0e6281e8c775a7e2d077"
+  },
+  {
+   "repo": "ViktorFoerrisdahl/SW3PRJ3_5",
+   "number": 16,
+   "diffSha256": "7c1d4227cb3a6e3ffa0b56c7cf259d44db224fe5a2c8aa6c911668f5fac0411a"
+  },
+  {
+   "repo": "Open-BFME/BFME2-Rebuild",
+   "number": 462,
+   "diffSha256": "95023516199d9e514541aad0e8335e6fd665881dcf6b87d64f22e39723b995da"
+  },
+  {
+   "repo": "Arvinispro/b07-A4",
+   "number": 1,
+   "diffSha256": "a5123d883710a9440be1d91af4ea31ba58c186333c612eec0ca30340568c0bc0"
+  },
+  {
+   "repo": "ComprexEu/gradstep",
+   "number": 1,
+   "diffSha256": "a416cb65c1203435b3ebacd29c6b77e7690452903abcdb9a1f2ad3cb272cb8d9"
+  },
+  {
+   "repo": "dylanreaves/minigit",
+   "number": 20,
+   "diffSha256": "4eb4c2b6d7837e1ab11d2efc3166193e181b79da6ea82c04a017b2787c0629a5"
+  }
+ ]
+}
